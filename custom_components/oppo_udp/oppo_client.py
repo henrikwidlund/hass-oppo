@@ -121,7 +121,7 @@ class OppoClient:
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
         except OSError:
             _LOGGER.exception(
-                "Failed to connect to Oppo player at %s:%s: %s",
+                "Failed to connect to Oppo player at %s:%s",
                 self._host,
                 self._port,
             )
@@ -187,7 +187,7 @@ class OppoClient:
                     response = await self._send_command_core(command)
 
             except OSError:
-                _LOGGER.exception("Error sending command %s: %s", command)
+                _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
             else:
