@@ -595,6 +595,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute/unmute the volume."""
+        # Only toggle if the desired state differs from current
+        if mute == self._is_muted:
+            return
         result = await self._client.mute_toggle()
         if result is not None:
             self._is_muted = result
