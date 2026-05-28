@@ -249,7 +249,8 @@ class OppoClient:
         else:
             return response
 
-    def _parse_ok_response(self, response: str | None) -> str | None:
+    @staticmethod
+    def _parse_ok_response(response: str | None) -> str | None:
         """Parse an OK response and return the value after @OK."""
         if response is None:
             return None

@@ -494,7 +494,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         }
         return mapping.get(status, PlaybackStatus.UNKNOWN)
 
-    def _map_input_source_response(self, raw: str) -> str | None:
+    @staticmethod
+    def _map_input_source_response(raw: str) -> str | None:
         """Map a raw input source response to a friendly name."""
         source_response_map = {
             "0 BD-PLAYER": "Blu-Ray Player",
