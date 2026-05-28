@@ -372,7 +372,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self.hass.async_create_task(self._rebuild_snapshot())
             else:
                 self._power_state = PowerState.OFF
-                self._clear_playback_state()
+                self._clear_all_state()
 
         elif event_type == "playback":
             prev_status = self._playback_status
@@ -452,8 +452,16 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._media_artist = None
         self._audio_type = None
         self._subtitle_type = None
+        self._disc_type = None
         self._last_title = None
         self._last_chapter = None
+
+    def _clear_all_state(self) -> None:
+        """Clear all state (used on power off)."""
+        self._clear_playback_state()
+        self._volume_level = None
+        self._is_muted = False
+        self._current_source = None
 
     async def _rebuild_snapshot(self) -> None:
         """Re-poll all state from the player (called on significant changes)."""
