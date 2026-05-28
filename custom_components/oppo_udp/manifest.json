@@ -1,0 +1,11 @@
+{
+  "domain": "oppo_udp",
+  "name": "Oppo UDP-20X",
+  "codeowners": ["@henrikwidlund"],
+  "config_flow": true,
+  "documentation": "https://github.com/henrikwidlund/hass-oppo",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/henrikwidlund/hass-oppo/issues",
+  "requirements": [],
+  "version": "0.0.1-preview"
+}
