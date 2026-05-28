@@ -1285,7 +1285,7 @@ dependencies = [
     { name = "voluptuous" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "ruff" },
@@ -1294,11 +1294,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "homeassistant", specifier = "==2026.5.4" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.15" },
     { name = "voluptuous", specifier = "==0.15.2" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "ruff", specifier = "==0.15.15" },
+]
 
 [[package]]
 name = "orjson"
