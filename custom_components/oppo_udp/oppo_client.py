@@ -591,45 +591,45 @@ class OppoClient:
 
     async def _streaming_loop(self) -> None:
         """Background loop reading streaming events from the player."""
-        while self._connected and self._reader:
-            try:
-                data = await self._reader.readuntil(b"\r")
-                frame = data.decode("ascii").strip()
-                if not frame:
-                    continue
+        try:
+            while self._connected and self._reader:
+                try:
+                    data = await self._reader.readuntil(b"\r")
+                    frame = data.decode("ascii").strip()
+                    if not frame:
+                        continue
 
-                # Check if this is a command response (for pending commands)
-                if self._try_complete_pending_response(frame):
-                    continue
+                    # Check if this is a command response (for pending commands)
+                    if self._try_complete_pending_response(frame):
+                        continue
 
-                event = self._parse_streaming_frame(frame)
-                if event:
-                    for cb in self._streaming_callbacks:
-                        try:
-                            cb(event)
-                        except Exception:
-                            _LOGGER.exception("Error in streaming callback")
-            except asyncio.CancelledError:
-                return
-            except (asyncio.IncompleteReadError, OSError):
-                _LOGGER.debug("Streaming connection lost")
-                self._connected = False
-                break
-            except Exception:
-                _LOGGER.exception("Error in streaming loop")
-                await asyncio.sleep(1)
+                    event = self._parse_streaming_frame(frame)
+                    if event:
+                        for cb in self._streaming_callbacks:
+                            try:
+                                cb(event)
+                            except Exception:
+                                _LOGGER.exception("Error in streaming callback")
+                except asyncio.CancelledError:
+                    raise
+                except (asyncio.IncompleteReadError, OSError):
+                    _LOGGER.debug("Streaming connection lost")
+                    self._connected = False
+                    break
+                except Exception:
+                    _LOGGER.exception("Error in streaming loop")
+                    await asyncio.sleep(1)
+        finally:
+            # Complete any pending command response with None
+            if self._pending_response and not self._pending_response.done():
+                self._pending_response.set_result(None)
 
-        # Complete any pending command response with None
-        if self._pending_response and not self._pending_response.done():
-            self._pending_response.set_result(None)
-
-        # Notify the caller that the connection was lost
-        if self._disconnect_callback is not None:
-            try:
-                self._disconnect_callback()
-            except Exception:
-                _LOGGER.exception("Error in disconnect callback")
-                await asyncio.sleep(1)
+            # Notify the caller that the connection was lost
+            if self._disconnect_callback is not None:
+                try:
+                    self._disconnect_callback()
+                except Exception:
+                    _LOGGER.exception("Error in disconnect callback")
 
     def _try_complete_pending_response(self, frame: str) -> bool:
         """Try to dispatch a frame as a command response.
