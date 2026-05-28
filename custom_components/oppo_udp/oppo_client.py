@@ -119,12 +119,11 @@ class OppoClient:
                     )
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except (TimeoutError, OSError) as err:
-            _LOGGER.error(
+        except OSError as err:
+            _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s: %s",
                 self._host,
                 self._port,
-                err,
             )
             self._connected = False
             return False
@@ -188,7 +187,7 @@ class OppoClient:
                     response = await self._send_command_core(command)
 
             except (TimeoutError, OSError) as err:
-                _LOGGER.error("Error sending command %s: %s", command, err)
+                _LOGGER.exception("Error sending command %s: %s", command)
                 self._connected = False
                 return None
             else:
