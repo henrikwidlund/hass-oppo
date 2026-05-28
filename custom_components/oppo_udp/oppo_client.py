@@ -660,7 +660,7 @@ class OppoClient:
 
         return False
 
-    def _parse_streaming_frame(self, frame: str) -> tuple[str, ...] | None:
+    def _parse_streaming_frame(self, frame: str) -> tuple[str, str] | None:
         """Parse a streaming frame into an event tuple.
 
         Returns a tuple like ('power', 'on'), ('playback', 'play'), etc.
@@ -707,7 +707,7 @@ class OppoClient:
         if code == "UVO":
             return "video_resolution", value
 
-        return "unknown", code, value
+        return "unknown", f"{code} {value}"
 
     def _parse_streaming_playback(self, value: str) -> str:
         """Parse a streaming playback status update value."""

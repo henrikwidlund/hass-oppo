@@ -358,7 +358,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._schedule_reconnect()
 
     @callback
-    def _handle_streaming_event(self, event: tuple[str, ...]) -> None:
+    def _handle_streaming_event(self, event: tuple[str, str]) -> None:
         """Handle a streaming event from the player."""
         if not event:
             return
