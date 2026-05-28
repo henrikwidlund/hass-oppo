@@ -7,7 +7,6 @@ from datetime import datetime
 import logging
 
 from homeassistant.components.media_player import (
-    MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
@@ -91,8 +90,8 @@ async def async_setup_entry(
 class OppoUDPMediaPlayer(MediaPlayerEntity):
     """Representation of an Oppo UDP-20X media player."""
 
-    _attr_device_class = MediaPlayerDeviceClass.RECEIVER
     _attr_has_entity_name = True
+    _attr_name = None
     _attr_should_poll = False
 
     def __init__(
@@ -104,7 +103,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     ) -> None:
         """Initialize the Oppo UDP-20X media player."""
         self._client = client
-        self._attr_name = name
+        self._name = name
         self._attr_unique_id = f"oppo_udp_{entry_id}"
         self._model = model
         self._entry_id = entry_id
@@ -141,7 +140,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Return device info."""
         return {
             "identifiers": {(DOMAIN, self._client.host)},
-            "name": self._attr_name,
+            "name": self._name,
             "manufacturer": "Oppo Digital",
             "model": self._model,
         }
