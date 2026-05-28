@@ -243,7 +243,7 @@ class OppoClient:
                 len(response) == 2 or response[2] == " "
             ):
                 return "@" + response
-        except (asyncio.IncompleteReadError, OSError):
+        except asyncio.IncompleteReadError, OSError:
             self._connected = False
             return None
         else:
@@ -611,7 +611,7 @@ class OppoClient:
                                 _LOGGER.exception("Error in streaming callback")
                 except asyncio.CancelledError:
                     raise
-                except (asyncio.IncompleteReadError, OSError):
+                except asyncio.IncompleteReadError, OSError:
                     _LOGGER.debug("Streaming connection lost")
                     self._connected = False
                     break
