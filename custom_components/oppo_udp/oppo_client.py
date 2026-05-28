@@ -190,8 +190,8 @@ class OppoClient:
                 _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
-            else:
-                return response
+
+            return response
 
     async def _send_command_core(self, command: str) -> str | None:
         """Send a single command attempt and read the response."""
@@ -708,7 +708,8 @@ class OppoClient:
 
         return "unknown", f"{code} {value}"
 
-    def _parse_streaming_playback(self, value: str) -> str:
+    @staticmethod
+    def _parse_streaming_playback(value: str) -> str:
         """Parse a streaming playback status update value."""
         status_map = {
             "DISC": "no_disc",
@@ -737,7 +738,8 @@ class OppoClient:
             return "step"
         return "unknown"
 
-    def _parse_streaming_disc_type(self, value: str) -> str:
+    @staticmethod
+    def _parse_streaming_disc_type(value: str) -> str:
         """Parse a streaming disc type update value (4-char codes)."""
         disc_type_map = {
             "UHBD": DiscType.ULTRA_HD_BLURAY.value,

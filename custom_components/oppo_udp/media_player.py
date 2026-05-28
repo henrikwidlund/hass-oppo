@@ -471,7 +471,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("Error rebuilding snapshot", exc_info=True)
         self.async_write_ha_state()
 
-    def _streaming_playback_to_enum(self, status: str) -> PlaybackStatus:
+    @staticmethod
+    def _streaming_playback_to_enum(status: str) -> PlaybackStatus:
         """Convert streaming playback string to PlaybackStatus enum."""
         mapping = {
             "play": PlaybackStatus.PLAY,
