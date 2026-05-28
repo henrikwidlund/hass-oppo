@@ -119,7 +119,7 @@ class OppoClient:
                     )
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except OSError as err:
+        except OSError:
             _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s: %s",
                 self._host,
@@ -186,7 +186,7 @@ class OppoClient:
                     await asyncio.sleep(0.05)
                     response = await self._send_command_core(command)
 
-            except (TimeoutError, OSError) as err:
+            except OSError:
                 _LOGGER.exception("Error sending command %s: %s", command)
                 self._connected = False
                 return None
