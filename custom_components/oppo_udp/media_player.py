@@ -298,10 +298,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Poll details only available during active playback."""
         is_movie = self._disc_type in ("bd-mv", "dvd-video", "uhbd")
 
-        # Use chapter time for video discs, track/title time for audio discs
+        # For movie discs use total elapsed/remaining (QEL/QRE) which matches
+        # the streaming @UTC "T" time code and reports full movie progress.
+        # For audio discs use track elapsed/remaining (QTE/QTR).
         if is_movie:
-            elapsed = await self._client.query_chapter_elapsed_time()
-            remaining = await self._client.query_chapter_remaining_time()
+            elapsed = await self._client.query_total_elapsed_time()
+            remaining = await self._client.query_total_remaining_time()
         else:
             elapsed = await self._client.query_track_elapsed_time()
             remaining = await self._client.query_track_remaining_time()
