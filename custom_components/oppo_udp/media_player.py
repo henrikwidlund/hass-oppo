@@ -326,7 +326,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         # Subtitle info (only relevant for video discs)
         # Skip if duration is less than 60s (most likely title screen)
-        if is_movie and (duration := self._media_duration) is not None and duration > 60:
+        if (
+            is_movie
+            and (duration := self._media_duration) is not None
+            and duration > 60
+        ):
             self._subtitle_type = await self._client.query_subtitle_type()
 
     def _schedule_reconnect(self) -> None:
