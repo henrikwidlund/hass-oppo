@@ -325,7 +325,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._audio_type = await self._client.query_audio_type()
 
         # Subtitle info (only relevant for video discs)
-        if is_movie:
+        # Skip if duration is less than 60s (most likely title screen)
+        if is_movie and (duration := self._media_duration) is not None and duration < 60:
             self._subtitle_type = await self._client.query_subtitle_type()
 
     def _schedule_reconnect(self) -> None:
@@ -553,7 +554,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     async def async_turn_off(self) -> None:
         """Turn the player off."""
-        await self._client.power_off()
+        if await self._client.power_off():
+            self._power_state = PowerState.OFF
+            self._clear_all_state()
+            self.async_write_ha_state()
 
     async def async_media_play(self) -> None:
         """Send play command."""
