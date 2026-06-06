@@ -560,8 +560,12 @@ class OppoClient:
         Skipped if verbose mode is already set to :param:`mode`.
         """
         verbose_mode_response = self._parse_ok_response(await self._send_command("QVM"))
-        if verbose_mode_response is not None and int(verbose_mode_response) == mode:
-            return True
+        if verbose_mode_response is not None:
+            try:
+                if int(verbose_mode_response) == mode:
+                    return True
+            except ValueError:
+                pass
 
         response = self._parse_ok_response(await self._send_command(f"SVM {mode}"))
         return response is not None
