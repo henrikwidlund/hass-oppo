@@ -515,8 +515,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         parts = value.split(" ")
         if len(parts) < 4:
             return
-        time_type = parts[2] if len(parts) > 2 else ""
-        time_str = parts[3] if len(parts) > 3 else ""
+        time_type = parts[2]
+        time_str = parts[3]
         seconds = self._parse_time_str(time_str)
         if seconds is None:
             return
