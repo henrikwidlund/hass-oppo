@@ -332,6 +332,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             and duration > 60
         ):
             self._subtitle_type = await self._client.query_subtitle_type()
+        else:
+            self._subtitle_type = None
 
     def _schedule_reconnect(self) -> None:
         """Schedule a reconnection attempt."""
