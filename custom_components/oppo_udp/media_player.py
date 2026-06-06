@@ -329,7 +329,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if (
             is_movie
             and (duration := self._media_duration) is not None
-            and duration > 60
+            and duration >= 60
         ):
             self._subtitle_type = await self._client.query_subtitle_type()
         else:
