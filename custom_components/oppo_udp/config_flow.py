@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 import voluptuous as vol
 
@@ -11,7 +12,7 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 
 from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, MODEL_UDP203, MODELS
-from .oppo_client import OppoClient
+from .oppo_client import OppoClient, PowerState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,11 +45,20 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             client = OppoClient(host, port=port)
             try:
                 if await client.connect():
-                    await client.query_power_status()
+                    power_state = await client.query_power_status()
                     await client.disconnect()
 
-                    # Use host as unique ID
-                    await self.async_set_unique_id(host)
+                    if power_state == PowerState.UNKNOWN:
+                        errors["base"] = "cannot_connect"
+                        return self.async_show_form(
+                            step_id="user",
+                            data_schema=STEP_USER_DATA_SCHEMA,
+                            errors=errors,
+                        )
+
+                    # Normalize host for stable unique IDs across casing/input forms.
+                    normalized_host = urlsplit(f"//{host}").hostname or host
+                    await self.async_set_unique_id(normalized_host.lower())
                     self._abort_if_unique_id_configured()
 
                     return self.async_create_entry(

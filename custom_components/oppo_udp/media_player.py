@@ -17,6 +17,7 @@ from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_MODEL,
@@ -49,25 +50,6 @@ PLAYBACK_TO_STATE = {
     PlaybackStatus.OPEN: MediaPlayerState.IDLE,
     PlaybackStatus.CLOSE: MediaPlayerState.IDLE,
     PlaybackStatus.SETUP: MediaPlayerState.IDLE,
-}
-
-STREAMING_PLAYBACK_TO_STATE = {
-    "play": MediaPlayerState.PLAYING,
-    "pause": MediaPlayerState.PAUSED,
-    "stop": MediaPlayerState.IDLE,
-    "fast_forward": MediaPlayerState.PLAYING,
-    "fast_rewind": MediaPlayerState.PLAYING,
-    "slow_forward": MediaPlayerState.PLAYING,
-    "slow_rewind": MediaPlayerState.PLAYING,
-    "step": MediaPlayerState.PAUSED,
-    "home_menu": MediaPlayerState.IDLE,
-    "media_center": MediaPlayerState.IDLE,
-    "screen_saver": MediaPlayerState.IDLE,
-    "disc_menu": MediaPlayerState.IDLE,
-    "no_disc": MediaPlayerState.IDLE,
-    "loading": MediaPlayerState.BUFFERING,
-    "open": MediaPlayerState.IDLE,
-    "close": MediaPlayerState.IDLE,
 }
 
 
@@ -117,6 +99,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._media_album: str | None = None
         self._media_artist: str | None = None
         self._media_position: int | None = None
+        self._media_position_updated_at: datetime | None = None
         self._media_duration: int | None = None
         self._current_source: str | None = None
         self._disc_type: str | None = None
@@ -125,7 +108,6 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._streaming_active = False
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._last_title: int | None = None
-        self._last_chapter: int | None = None
 
         # Input sources based on model
         if model == MODEL_UDP205:
@@ -161,6 +143,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.SELECT_SOURCE
         )
+
+    @property
+    def available(self) -> bool:
+        """Return if the entity is currently available."""
+        return self._client.connected
 
     @property
     def state(self) -> MediaPlayerState | None:
@@ -200,6 +187,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def media_position(self) -> int | None:
         """Return the media position in seconds."""
         return self._media_position
+
+    @property
+    def media_position_updated_at(self) -> datetime | None:
+        """Return when media_position was last updated."""
+        return self._media_position_updated_at
 
     @property
     def media_duration(self) -> int | None:
@@ -308,7 +300,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             elapsed = await self._client.query_track_elapsed_time()
             remaining = await self._client.query_track_remaining_time()
         if elapsed is not None:
-            self._media_position = elapsed
+            self._set_media_position(elapsed)
         if elapsed is not None and remaining is not None:
             self._media_duration = elapsed + remaining
 
@@ -431,19 +423,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
     def _handle_time_code_event(self, value: str) -> None:
-        """Handle a streaming time code event, rebuild on title/chapter change."""
+        """Handle a streaming time code event, rebuild on title change."""
         parts = value.split(" ")
         if len(parts) < 4:
             return
 
         with contextlib.suppress(ValueError):
             title = int(parts[0])
-            chapter = int(parts[1])
 
-            # Title or chapter changed — rebuild snapshot with fresh metadata
-            if title != self._last_title or chapter != self._last_chapter:
+            # Title changed — rebuild snapshot with fresh metadata.
+            if title != self._last_title:
                 self._last_title = title
-                self._last_chapter = chapter
+                # Apply the current sample immediately to avoid a visible
+                # position freeze/jump while waiting for the rebuild.
+                self._parse_time_code_event(value)
+                self.async_write_ha_state()
                 self.hass.async_create_task(self._rebuild_snapshot())
                 return
 
@@ -455,19 +449,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Clear playback-specific state fields."""
         self._playback_status = PlaybackStatus.UNKNOWN
         self._media_position = None
+        self._media_position_updated_at = None
         self._media_duration = None
         self._media_title = None
         self._media_album = None
         self._media_artist = None
         self._audio_type = None
         self._subtitle_type = None
-        self._disc_type = None
         self._last_title = None
-        self._last_chapter = None
 
     def _clear_all_state(self) -> None:
         """Clear all state (used on power off)."""
         self._clear_playback_state()
+        self._disc_type = None
         self._volume_level = None
         self._is_muted = False
         self._current_source = None
@@ -528,20 +522,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             return
 
         if time_type == "E":  # Total elapsed
-            self._media_position = seconds
+            self._set_media_position(seconds)
         elif time_type == "R":  # Total remaining
             if self._media_position is not None:
                 self._media_duration = self._media_position + seconds
             else:
                 self._media_duration = seconds
         elif time_type == "T":  # Title/track elapsed
-            self._media_position = seconds
+            self._set_media_position(seconds)
         elif time_type == "X" and self._media_position is not None:  # Title remaining
             self._media_duration = self._media_position + seconds
-        elif time_type == "C":  # Chapter elapsed
-            self._media_position = seconds
-        elif time_type == "K" and self._media_position is not None:  # Chapter remaining
-            self._media_duration = self._media_position + seconds
+
+    def _set_media_position(self, seconds: int) -> None:
+        """Update position and timestamp together for HA progress interpolation."""
+        self._media_position = seconds
+        self._media_position_updated_at = dt_util.utcnow()
 
     @staticmethod
     def _parse_time_str(time_str: str) -> int | None:

@@ -89,6 +89,7 @@ class OppoClient:
         self._streaming_callbacks: list = []
         self._disconnect_callback: Callable[[], None] | None = None
         self._pending_response: asyncio.Future[str | None] | None = None
+        self._stop_streaming_requested = False
 
     @property
     def host(self) -> str:
@@ -119,7 +120,7 @@ class OppoClient:
                     )
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except OSError:
+        except OSError | TimeoutError:
             _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s",
                 self._host,
@@ -139,7 +140,7 @@ class OppoClient:
                 asyncio.open_connection(self._host, self._port),
                 timeout=DEFAULT_TIMEOUT,
             )
-        except OSError:
+        except OSError | TimeoutError:
             # Network stack might not be ready — retry once after a short delay
             _LOGGER.debug("Connection failed, retrying in 500ms")
             await asyncio.sleep(0.5)
@@ -150,6 +151,7 @@ class OppoClient:
 
     async def disconnect(self) -> None:
         """Disconnect from the Oppo player."""
+        self._stop_streaming_requested = True
         if self._streaming_task and not self._streaming_task.done():
             self._streaming_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -186,7 +188,7 @@ class OppoClient:
                     await asyncio.sleep(0.05)
                     response = await self._send_command_core(command)
 
-            except OSError:
+            except OSError | TimeoutError:
                 _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
@@ -198,23 +200,38 @@ class OppoClient:
         if self._writer is None:
             self._connected = False
             return None
+
+        # Register pending command response before writing to avoid races with
+        # fast replies being consumed by the streaming loop.
+        use_streaming_response = bool(
+            self._streaming_task and not self._streaming_task.done()
+        )
+        pending_response: asyncio.Future[str | None] | None = None
+        if use_streaming_response:
+            loop = asyncio.get_event_loop()
+            pending_response = loop.create_future()
+            self._pending_response = pending_response
+
         cmd_bytes = f"#{command}\r".encode("ascii")
-        self._writer.write(cmd_bytes)
-        await self._writer.drain()
-        self._last_command_time = asyncio.get_event_loop().time()
+        try:
+            self._writer.write(cmd_bytes)
+            await self._writer.drain()
+            self._last_command_time = asyncio.get_event_loop().time()
+        except Exception:
+            if self._pending_response is pending_response:
+                self._pending_response = None
+            raise
 
         # If streaming loop is active, use a future that it will complete
-        if self._streaming_task and not self._streaming_task.done():
-            loop = asyncio.get_event_loop()
-            future: asyncio.Future[str | None] = loop.create_future()
-            self._pending_response = future
+        if use_streaming_response and pending_response is not None:
             try:
-                return await asyncio.wait_for(future, timeout=DEFAULT_TIMEOUT)
+                return await asyncio.wait_for(pending_response, timeout=DEFAULT_TIMEOUT)
             except TimeoutError:
                 _LOGGER.debug("Command %s timed out waiting for response", command)
                 return None
             finally:
-                self._pending_response = None
+                if self._pending_response is pending_response:
+                    self._pending_response = None
 
         # No streaming loop — read directly
         return await asyncio.wait_for(
@@ -585,14 +602,18 @@ class OppoClient:
 
         """
         self._disconnect_callback = on_disconnect
+        self._stop_streaming_requested = False
+        # Keep only the active subscriber callback to avoid duplicated events
+        # after reconnect cycles.
+        self._streaming_callbacks = [callback]
         await self.set_verbose_mode(3)
         if self._streaming_task and not self._streaming_task.done():
             return
-        self._streaming_callbacks.append(callback)
         self._streaming_task = asyncio.create_task(self._streaming_loop())
 
     async def stop_streaming(self) -> None:
         """Stop streaming updates."""
+        self._stop_streaming_requested = True
         if self._streaming_task and not self._streaming_task.done():
             self._streaming_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -635,8 +656,13 @@ class OppoClient:
             if self._pending_response and not self._pending_response.done():
                 self._pending_response.set_result(None)
 
+            self._streaming_callbacks.clear()
+
             # Notify the caller that the connection was lost
-            if self._disconnect_callback is not None:
+            if (
+                not self._stop_streaming_requested
+                and self._disconnect_callback is not None
+            ):
                 try:
                     self._disconnect_callback()
                 except Exception:
