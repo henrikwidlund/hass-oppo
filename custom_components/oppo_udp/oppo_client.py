@@ -554,7 +554,18 @@ class OppoClient:
     # --- Verbose mode ---
 
     async def set_verbose_mode(self, mode: int) -> bool:
-        """Set verbose mode (0=off, 2=unsolicited updates, 3=detailed)."""
+        """Set verbose mode (0=off, 2=unsolicited updates, 3=detailed).
+
+        Skips sending the SVM command if verbose mode is already set to the requested mode.
+        """
+        verbose_mode_response = self._parse_ok_response(await self._send_command("QVM"))
+        if verbose_mode_response is not None:
+            try:
+                if int(verbose_mode_response) == mode:
+                    return True
+            except ValueError:
+                pass
+
         response = self._parse_ok_response(await self._send_command(f"SVM {mode}"))
         return response is not None
 
