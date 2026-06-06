@@ -441,7 +441,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self.hass.async_create_task(self._rebuild_snapshot())
                 return
 
-        # Same title/chapter — just update position
+        # Same title — just update position
         self._parse_time_code_event(value)
         self.async_write_ha_state()
 

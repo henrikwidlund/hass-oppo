@@ -120,7 +120,7 @@ class OppoClient:
                     )
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except OSError | TimeoutError:
+        except (OSError | TimeoutError):
             _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s",
                 self._host,
@@ -140,7 +140,7 @@ class OppoClient:
                 asyncio.open_connection(self._host, self._port),
                 timeout=DEFAULT_TIMEOUT,
             )
-        except OSError | TimeoutError:
+        except (OSError | TimeoutError):
             # Network stack might not be ready — retry once after a short delay
             _LOGGER.debug("Connection failed, retrying in 500ms")
             await asyncio.sleep(0.5)
@@ -188,7 +188,7 @@ class OppoClient:
                     await asyncio.sleep(0.05)
                     response = await self._send_command_core(command)
 
-            except OSError | TimeoutError:
+            except (OSError | TimeoutError):
                 _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
@@ -217,7 +217,7 @@ class OppoClient:
             self._writer.write(cmd_bytes)
             await self._writer.drain()
             self._last_command_time = asyncio.get_event_loop().time()
-        except Exception:
+        except Exception:  # noqa: BLE001
             if self._pending_response is pending_response:
                 self._pending_response = None
             raise
