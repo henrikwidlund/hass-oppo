@@ -554,8 +554,7 @@ class OppoClient:
     # --- Verbose mode ---
 
     async def set_verbose_mode(self, mode: int) -> bool:
-        """
-        Set verbose mode (0=off, 2=unsolicited updates, 3=detailed).
+        """Set verbose mode (0=off, 2=unsolicited updates, 3=detailed).
 
         Skipped if verbose mode is already set to :param:`mode`.
         """
