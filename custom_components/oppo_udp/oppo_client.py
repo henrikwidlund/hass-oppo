@@ -332,13 +332,8 @@ class OppoClient:
 
     # --- Playback commands ---
 
-    async def play(self) -> bool:
-        """Start playback."""
-        response = await self._send_command("PLA")
-        return response is not None and "@OK" in response
-
-    async def pause(self) -> bool:
-        """Pause playback."""
+    async def play_pause_toggle(self) -> bool:
+        """Toggle Play/Pause  playback."""
         response = await self._send_command("PAU")
         return response is not None and "@OK" in response
 
