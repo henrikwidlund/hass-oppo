@@ -1,10 +1,12 @@
 """Media player platform for Oppo UDP-20X."""
 
+# pyright: reportIncompatibleVariableOverride=false
+
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
 import logging
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -12,24 +14,23 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
     MediaType,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from .const import (
-    CONF_MODEL,
-    DEFAULT_PORT,
-    DOMAIN,
-    INPUT_SOURCES_UDP203,
-    INPUT_SOURCES_UDP205,
-    MODEL_UDP205,
-)
+from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, INPUT_SOURCES_UDP203, INPUT_SOURCES_UDP205, MODEL_UDP205
 from .oppo_client import OppoClient, PlaybackStatus, PowerState
 
 _LOGGER = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
 PLAYBACK_TO_STATE = {
@@ -54,7 +55,7 @@ PLAYBACK_TO_STATE = {
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
+    hass: HomeAssistant,  # noqa: ARG001
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -118,16 +119,15 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._source_map = INPUT_SOURCES_UDP203
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo | None:
         """Return device info."""
-        return {
-            "identifiers": {(DOMAIN, self._client.host)},
-            "name": self._name,
-            "manufacturer": "Oppo Digital",
-            "model": self._model,
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)}, name=self._name, manufacturer="Oppo Digital", model=self._model
+        )
 
     @property
+    @override
     def supported_features(self) -> MediaPlayerEntityFeature:
         """Return the supported features."""
         return (
@@ -145,11 +145,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         )
 
     @property
+    @override
     def available(self) -> bool:
         """Return if the entity is currently available."""
         return self._client.connected
 
     @property
+    @override
     def state(self) -> MediaPlayerState | None:
         """Return the state of the player."""
         if self._power_state == PowerState.OFF:
@@ -159,46 +161,55 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         return PLAYBACK_TO_STATE.get(self._playback_status, MediaPlayerState.IDLE)
 
     @property
+    @override
     def volume_level(self) -> float | None:
         """Return volume level (0..1)."""
         return self._volume_level
 
     @property
+    @override
     def is_volume_muted(self) -> bool:
         """Return True if volume is muted."""
         return self._is_muted
 
     @property
+    @override
     def media_title(self) -> str | None:
         """Return the media title."""
         return self._media_title
 
     @property
+    @override
     def media_album_name(self) -> str | None:
         """Return the media album."""
         return self._media_album
 
     @property
+    @override
     def media_artist(self) -> str | None:
         """Return the media artist."""
         return self._media_artist
 
     @property
+    @override
     def media_position(self) -> int | None:
         """Return the media position in seconds."""
         return self._media_position
 
     @property
+    @override
     def media_position_updated_at(self) -> datetime | None:
         """Return when media_position was last updated."""
         return self._media_position_updated_at
 
     @property
+    @override
     def media_duration(self) -> int | None:
         """Return the media duration in seconds."""
         return self._media_duration
 
     @property
+    @override
     def media_content_type(self) -> MediaType | None:
         """Return the content type."""
         if self._disc_type in ("cdda", "sacd", "dvd-audio"):
@@ -208,30 +219,35 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         return None
 
     @property
+    @override
     def source(self) -> str | None:
         """Return current source."""
         return self._current_source
 
     @property
+    @override
     def source_list(self) -> list[str]:
         """Return the available sources."""
         return self._source_list
 
     @property
-    def extra_state_attributes(self):
+    @override
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return extra state attributes."""
-        attrs = {}
+        attrs: dict[str, str] = {}
         if self._disc_type:
             attrs["disc_type"] = self._disc_type
         if self._audio_type:
             attrs["audio_type"] = self._audio_type
         return attrs
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass."""
         await super().async_added_to_hass()
         await self._connect_and_stream()
 
+    @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
         self._reconnect_cancel()
@@ -320,11 +336,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         # Subtitle info (only relevant for video discs)
         # Skip if duration is less than 60s (most likely title screen)
-        if (
-            is_movie
-            and (duration := self._media_duration) is not None
-            and duration >= 60
-        ):
+        if is_movie and (duration := self._media_duration) is not None and duration >= 60:
             self._subtitle_type = await self._client.query_subtitle_type()
         else:
             self._subtitle_type = None
@@ -551,10 +563,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     # --- Commands ---
 
+    @override
     async def async_turn_on(self) -> None:
         """Turn the player on."""
         await self._client.power_on()
 
+    @override
     async def async_turn_off(self) -> None:
         """Turn the player off."""
         if await self._client.power_off():
@@ -562,26 +576,32 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._clear_all_state()
             self.async_write_ha_state()
 
+    @override
     async def async_media_play(self) -> None:
         """Send play command."""
         await self._client.play()
 
+    @override
     async def async_media_pause(self) -> None:
         """Send pause command."""
         await self._client.pause()
 
+    @override
     async def async_media_stop(self) -> None:
         """Send stop command."""
         await self._client.stop()
 
+    @override
     async def async_media_next_track(self) -> None:
         """Send next track command."""
         await self._client.next_track()
 
+    @override
     async def async_media_previous_track(self) -> None:
         """Send previous track command."""
         await self._client.previous_track()
 
+    @override
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level (0..1)."""
         vol_int = int(volume * 100)
@@ -589,18 +609,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if result is not None:
             self._volume_level = result / 100.0
 
+    @override
     async def async_volume_up(self) -> None:
         """Turn volume up."""
         result = await self._client.volume_up()
         if result is not None:
             self._volume_level = result / 100.0
 
+    @override
     async def async_volume_down(self) -> None:
         """Turn volume down."""
         result = await self._client.volume_down()
         if result is not None:
             self._volume_level = result / 100.0
 
+    @override
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute/unmute the volume."""
         # Only toggle if the desired state differs from current
@@ -610,6 +633,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if result is not None:
             self._is_muted = result
 
+    @override
     async def async_select_source(self, source: str) -> None:
         """Select an input source."""
         source_id = self._source_map.get(source)

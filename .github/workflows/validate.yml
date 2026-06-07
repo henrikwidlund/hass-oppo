@@ -34,3 +34,4 @@ jobs:
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - run: uv run --no-build --frozen --only-group dev ruff check custom_components/
       - run: uv run --no-build --frozen --only-group dev ruff format --check custom_components/
+      - run: uv run --no-build --frozen --only-group dev python -m pyright custom_components/

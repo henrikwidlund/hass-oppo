@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 import contextlib
 from enum import StrEnum
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,8 +88,8 @@ class OppoClient:
         self._lock = asyncio.Lock()
         self._last_command_time: float = 0.0
         self._connected = False
-        self._streaming_task: asyncio.Task | None = None
-        self._streaming_callbacks: list = []
+        self._streaming_task: asyncio.Task[None] | None = None
+        self._streaming_callbacks: list[Callable[[tuple[str, str]], None]] = []
         self._disconnect_callback: Callable[[], None] | None = None
         self._pending_response: asyncio.Future[str | None] | None = None
         self._stop_streaming_requested = False
@@ -110,17 +113,14 @@ class OppoClient:
             self._reader, self._writer = await self._do_connect()
             # Disable Nagle's algorithm for immediate command delivery
             writer = self._writer
-            if writer is not None:
-                import socket as socket_module  # noqa: PLC0415
+            import socket as socket_module  # noqa: PLC0415
 
-                raw_sock = writer.get_extra_info("socket")
-                if raw_sock is not None:
-                    raw_sock.setsockopt(
-                        socket_module.IPPROTO_TCP, socket_module.TCP_NODELAY, 1
-                    )
+            raw_sock = writer.get_extra_info("socket")
+            if raw_sock is not None:
+                raw_sock.setsockopt(socket_module.IPPROTO_TCP, socket_module.TCP_NODELAY, 1)
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except OSError | TimeoutError:
+        except OSError, TimeoutError:
             _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s",
                 self._host,
@@ -140,7 +140,7 @@ class OppoClient:
                 asyncio.open_connection(self._host, self._port),
                 timeout=DEFAULT_TIMEOUT,
             )
-        except OSError | TimeoutError:
+        except OSError, TimeoutError:
             # Network stack might not be ready — retry once after a short delay
             _LOGGER.debug("Connection failed, retrying in 500ms")
             await asyncio.sleep(0.5)
@@ -188,7 +188,7 @@ class OppoClient:
                     await asyncio.sleep(0.05)
                     response = await self._send_command_core(command)
 
-            except OSError | TimeoutError:
+            except OSError, TimeoutError:
                 _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
@@ -203,9 +203,7 @@ class OppoClient:
 
         # Register pending command response before writing to avoid races with
         # fast replies being consumed by the streaming loop.
-        use_streaming_response = bool(
-            self._streaming_task and not self._streaming_task.done()
-        )
+        use_streaming_response = bool(self._streaming_task and not self._streaming_task.done())
         pending_response: asyncio.Future[str | None] | None = None
         if use_streaming_response:
             loop = asyncio.get_event_loop()
@@ -256,9 +254,7 @@ class OppoClient:
                     return "@" + payload
 
             # Handle legacy responses without '@' prefix (e.g. "OK CLOSE")
-            if response.startswith(("OK", "ER")) and (
-                len(response) == 2 or response[2] == " "
-            ):
+            if response.startswith(("OK", "ER")) and (len(response) == 2 or response[2] == " "):
                 return "@" + response
         except asyncio.IncompleteReadError, OSError:
             self._connected = False
@@ -588,7 +584,11 @@ class OppoClient:
 
     # --- Streaming updates ---
 
-    async def start_streaming(self, callback, on_disconnect=None) -> None:
+    async def start_streaming(
+        self,
+        callback: Callable[[tuple[str, str]], None],
+        on_disconnect: Callable[[], None] | None = None,
+    ) -> None:
         """Start receiving streaming updates from the player.
 
         First enables verbose mode 3 (detailed unsolicited status updates
@@ -658,11 +658,22 @@ class OppoClient:
 
             self._streaming_callbacks.clear()
 
+            # On unexpected disconnect, explicitly close transport and clear
+            # stream objects to avoid stale writer/reader references.
+            if not self._stop_streaming_requested:
+                writer = self._writer
+                self._writer = None
+                self._reader = None
+                self._connected = False
+                if writer is not None:
+                    try:
+                        writer.close()
+                        await writer.wait_closed()
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("Error closing writer after streaming disconnect")
+
             # Notify the caller that the connection was lost
-            if (
-                not self._stop_streaming_requested
-                and self._disconnect_callback is not None
-            ):
+            if not self._stop_streaming_requested and self._disconnect_callback is not None:
                 try:
                     self._disconnect_callback()
                 except Exception:
@@ -689,9 +700,7 @@ class OppoClient:
         # Streaming format command response: @CMD OK/ER ...
         if len(frame) > 5 and frame[0] == "@" and frame[4] == " ":
             payload = frame[5:]
-            if payload.startswith(("OK", "ER")) and (
-                len(payload) == 2 or payload[2] == " "
-            ):
+            if payload.startswith(("OK", "ER")) and (len(payload) == 2 or payload[2] == " "):
                 self._pending_response.set_result("@" + payload)
                 return True
 
