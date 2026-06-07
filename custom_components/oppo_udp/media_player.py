@@ -1,7 +1,5 @@
 """Media player platform for Oppo UDP-20X."""
 
-# pyright: reportIncompatibleVariableOverride=false
-
 from __future__ import annotations
 
 import contextlib
@@ -120,7 +118,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
-    def device_info(self) -> DeviceInfo | None:
+    def device_info(self) -> DeviceInfo | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, self._client.host)},
@@ -131,7 +129,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
-    def supported_features(self) -> MediaPlayerEntityFeature:
+    def supported_features(self) -> MediaPlayerEntityFeature:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the supported features."""
         return (
             MediaPlayerEntityFeature.TURN_ON
@@ -149,13 +147,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
-    def available(self) -> bool:
+    def available(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return if the entity is currently available."""
         return self._client.connected
 
     @property
     @override
-    def state(self) -> MediaPlayerState | None:
+    def state(self) -> MediaPlayerState | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the state of the player."""
         if self._power_state == PowerState.OFF:
             return MediaPlayerState.OFF
@@ -165,55 +163,55 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
-    def volume_level(self) -> float | None:
+    def volume_level(self) -> float | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return volume level (0..1)."""
         return self._volume_level
 
     @property
     @override
-    def is_volume_muted(self) -> bool:
+    def is_volume_muted(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return True if volume is muted."""
         return self._is_muted
 
     @property
     @override
-    def media_title(self) -> str | None:
+    def media_title(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media title."""
         return self._media_title
 
     @property
     @override
-    def media_album_name(self) -> str | None:
+    def media_album_name(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media album."""
         return self._media_album
 
     @property
     @override
-    def media_artist(self) -> str | None:
+    def media_artist(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media artist."""
         return self._media_artist
 
     @property
     @override
-    def media_position(self) -> int | None:
+    def media_position(self) -> int | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media position in seconds."""
         return self._media_position
 
     @property
     @override
-    def media_position_updated_at(self) -> datetime | None:
+    def media_position_updated_at(self) -> datetime | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return when media_position was last updated."""
         return self._media_position_updated_at
 
     @property
     @override
-    def media_duration(self) -> int | None:
+    def media_duration(self) -> int | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media duration in seconds."""
         return self._media_duration
 
     @property
     @override
-    def media_content_type(self) -> MediaType | None:
+    def media_content_type(self) -> MediaType | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the content type."""
         if self._disc_type in ("cdda", "sacd", "dvd-audio"):
             return MediaType.MUSIC
@@ -223,19 +221,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
-    def source(self) -> str | None:
+    def source(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return current source."""
         return self._current_source
 
     @property
     @override
-    def source_list(self) -> list[str]:
+    def source_list(self) -> list[str]:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the available sources."""
         return self._source_list
 
     @property
     @override
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return extra state attributes."""
         attrs: dict[str, str] = {}
         if self._disc_type:
