@@ -694,7 +694,7 @@ class OppoClient:
                     continue
 
                 event = await queue.get()
-                for cb in list(self._streaming_callbacks):
+                for cb in self._streaming_callbacks:
                     try:
                         cb(event)
                     except Exception:
