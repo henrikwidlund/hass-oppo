@@ -666,8 +666,9 @@ class OppoClient:
                     await asyncio.sleep(1)
         finally:
             # Complete any pending command response with None
-            if self._pending_response and not self._pending_response.done():
-                self._pending_response.set_result(None)
+            if self._pending_response is not None:
+                with contextlib.suppress(asyncio.InvalidStateError):
+                    self._pending_response.set_result(None)
             self._pending_command = None
 
             self._streaming_callbacks.clear()
@@ -736,7 +737,7 @@ class OppoClient:
                     expected_code,
                     frame,
                 )
-                return False
+                return True
 
         return False
 
