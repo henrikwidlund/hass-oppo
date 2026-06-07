@@ -120,7 +120,7 @@ class OppoClient:
                 raw_sock.setsockopt(socket_module.IPPROTO_TCP, socket_module.TCP_NODELAY, 1)
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
-        except OSError:
+        except OSError, TimeoutError:
             _LOGGER.exception(
                 "Failed to connect to Oppo player at %s:%s",
                 self._host,
@@ -140,7 +140,7 @@ class OppoClient:
                 asyncio.open_connection(self._host, self._port),
                 timeout=DEFAULT_TIMEOUT,
             )
-        except OSError:
+        except OSError, TimeoutError:
             # Network stack might not be ready — retry once after a short delay
             _LOGGER.debug("Connection failed, retrying in 500ms")
             await asyncio.sleep(0.5)
@@ -188,7 +188,7 @@ class OppoClient:
                     await asyncio.sleep(0.05)
                     response = await self._send_command_core(command)
 
-            except OSError:
+            except OSError, TimeoutError:
                 _LOGGER.exception("Error sending command %s", command)
                 self._connected = False
                 return None
@@ -224,7 +224,7 @@ class OppoClient:
         if use_streaming_response and pending_response is not None:
             try:
                 return await asyncio.wait_for(pending_response, timeout=DEFAULT_TIMEOUT)
-            except OSError:
+            except TimeoutError:
                 _LOGGER.debug("Command %s timed out waiting for response", command)
                 return None
             finally:
@@ -256,7 +256,7 @@ class OppoClient:
             # Handle legacy responses without '@' prefix (e.g. "OK CLOSE")
             if response.startswith(("OK", "ER")) and (len(response) == 2 or response[2] == " "):
                 return "@" + response
-        except (asyncio.IncompleteReadError, OSError):
+        except asyncio.IncompleteReadError, OSError:
             self._connected = False
             return None
         else:
@@ -644,7 +644,7 @@ class OppoClient:
                                 _LOGGER.exception("Error in streaming callback")
                 except asyncio.CancelledError:
                     raise
-                except (asyncio.IncompleteReadError, OSError):
+                except asyncio.IncompleteReadError, OSError:
                     _LOGGER.debug("Streaming connection lost")
                     self._connected = False
                     break
