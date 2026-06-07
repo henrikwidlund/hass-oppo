@@ -92,6 +92,7 @@ class OppoClient:
         self._streaming_callbacks: list[Callable[[tuple[str, str]], None]] = []
         self._disconnect_callback: Callable[[], None] | None = None
         self._pending_response: asyncio.Future[str | None] | None = None
+        self._pending_command: str | None = None
         self._stop_streaming_requested = False
 
     @property
@@ -158,6 +159,13 @@ class OppoClient:
                 await self._streaming_task
             self._streaming_task = None
 
+        # Clear pending command/response state on explicit disconnect.
+        pending = self._pending_response
+        self._pending_response = None
+        self._pending_command = None
+        if pending is not None and not pending.done():
+            pending.set_result(None)
+
         if self._writer:
             try:
                 self._writer.close()
@@ -175,7 +183,7 @@ class OppoClient:
                 return None
 
             # Rate limiting
-            now = asyncio.get_event_loop().time()
+            now = asyncio.get_running_loop().time()
             elapsed = now - self._last_command_time
             if elapsed < COMMAND_INTERVAL:
                 await asyncio.sleep(COMMAND_INTERVAL - elapsed)
@@ -206,18 +214,21 @@ class OppoClient:
         use_streaming_response = bool(self._streaming_task and not self._streaming_task.done())
         pending_response: asyncio.Future[str | None] | None = None
         if use_streaming_response:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             pending_response = loop.create_future()
             self._pending_response = pending_response
+            self._pending_command = command
 
         cmd_bytes = f"#{command}\r".encode("ascii")
         try:
             self._writer.write(cmd_bytes)
             await self._writer.drain()
-            self._last_command_time = asyncio.get_event_loop().time()
+            self._last_command_time = asyncio.get_running_loop().time()
         except Exception:
             if self._pending_response is pending_response:
                 self._pending_response = None
+            if self._pending_command == command:
+                self._pending_command = None
             raise
 
         # If streaming loop is active, use a future that it will complete
@@ -230,6 +241,8 @@ class OppoClient:
             finally:
                 if self._pending_response is pending_response:
                     self._pending_response = None
+                if self._pending_command == command:
+                    self._pending_command = None
 
         # No streaming loop — read directly
         return await asyncio.wait_for(
@@ -655,6 +668,7 @@ class OppoClient:
             # Complete any pending command response with None
             if self._pending_response and not self._pending_response.done():
                 self._pending_response.set_result(None)
+            self._pending_command = None
 
             self._streaming_callbacks.clear()
 
@@ -684,25 +698,45 @@ class OppoClient:
 
         Returns True if the frame was consumed as a command response.
         """
-        if self._pending_response is None or self._pending_response.done():
+        pending = self._pending_response
+        if pending is None or pending.done():
             return False
 
-        # Direct @OK/@ER response
+        # Direct @OK/@ER response (no command code available)
         if frame.startswith(("@OK", "@ER")):
-            self._pending_response.set_result(frame)
+            pending.set_result(frame)
             return True
 
         # Legacy response without '@' prefix
         if frame.startswith(("OK", "ER")) and (len(frame) == 2 or frame[2] == " "):
-            self._pending_response.set_result("@" + frame)
+            pending.set_result("@" + frame)
             return True
 
         # Streaming format command response: @CMD OK/ER ...
         if len(frame) > 5 and frame[0] == "@" and frame[4] == " ":
             payload = frame[5:]
             if payload.startswith(("OK", "ER")) and (len(payload) == 2 or payload[2] == " "):
-                self._pending_response.set_result("@" + payload)
-                return True
+                expected_raw = self._pending_command
+                if not expected_raw:
+                    return False
+
+                expected_code = self._command_code(expected_raw)
+                actual_code = frame[1:4].upper()
+
+                if actual_code == expected_code or self._is_play_pause_alternate_ack(
+                    expected_code,
+                    actual_code,
+                    payload,
+                ):
+                    pending.set_result("@" + payload)
+                    return True
+
+                _LOGGER.debug(
+                    "Ignoring mismatched command response while waiting for %s: %s",
+                    expected_code,
+                    frame,
+                )
+                return False
 
         return False
 
@@ -815,3 +849,13 @@ class OppoClient:
             return hours * 3600 + minutes * 60 + seconds
         except ValueError:
             return None
+
+    @staticmethod
+    def _command_code(command: str) -> str:
+        """Extract command code from 'CMD' or 'CMD args'."""
+        return command.split(" ", 1)[0].strip().upper()
+
+    @staticmethod
+    def _is_play_pause_alternate_ack(expected_code: str, actual_code: str, payload: str) -> bool:
+        """Some players acknowledge PAU resume as PLA OK PLAY."""
+        return expected_code == "PAU" and actual_code == "PLA" and payload == "OK PLAY"
