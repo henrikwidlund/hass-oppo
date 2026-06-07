@@ -33,6 +33,6 @@ jobs:
           python-version: "3.14.2"
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
       - run: uv sync --frozen --group dev
-      - run: uv run --no-sync ruff check custom_components/
-      - run: uv run --no-sync ruff format --check custom_components/
-      - run: uv run --no-sync python -m pyright custom_components/
+      - run: uv run --frozen --no-build --no-sync ruff check custom_components/
+      - run: uv run --frozen --no-build --no-sync ruff format --check custom_components/
+      - run: uv run --frozen --no-build --no-sync python -m pyright custom_components/
