@@ -163,8 +163,9 @@ class OppoClient:
         pending = self._pending_response
         self._pending_response = None
         self._pending_command = None
-        if pending is not None and not pending.done():
-            pending.set_result(None)
+        if pending is not None:
+            with contextlib.suppress(asyncio.InvalidStateError):
+                pending.set_result(None)
 
         if self._writer:
             try:
