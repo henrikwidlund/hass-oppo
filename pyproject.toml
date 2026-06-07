@@ -17,7 +17,7 @@ dev = [
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-src = ["custom_components/**", "tests"]
+src = ["custom_components", "tests"]
 extend-exclude = ["build", "dist"]
 
 [tool.ruff.lint]
