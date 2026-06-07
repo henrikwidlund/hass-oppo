@@ -16,6 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_PORT = 23
 DEFAULT_TIMEOUT = 3.0
 COMMAND_INTERVAL = 0.1  # 100ms between commands (rate limiting)
+DEFAULT_STREAM_EVENT_QUEUE_SIZE = 128
 
 
 class PowerState(StrEnum):
@@ -89,11 +90,13 @@ class OppoClient:
         self._last_command_time: float = 0.0
         self._connected = False
         self._streaming_task: asyncio.Task[None] | None = None
+        self._dispatcher_task: asyncio.Task[None] | None = None
         self._streaming_callbacks: list[Callable[[tuple[str, str]], None]] = []
         self._disconnect_callback: Callable[[], None] | None = None
         self._pending_response: asyncio.Future[str | None] | None = None
         self._pending_command: str | None = None
         self._stop_streaming_requested = False
+        self._event_queue: asyncio.Queue[tuple[str, str]] | None = None
 
     @property
     def host(self) -> str:
@@ -132,9 +135,7 @@ class OppoClient:
         else:
             return True
 
-    async def _do_connect(
-        self,
-    ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    async def _do_connect(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         """Attempt TCP connection with one retry on socket error."""
         try:
             return await asyncio.wait_for(
@@ -150,22 +151,44 @@ class OppoClient:
                 timeout=DEFAULT_TIMEOUT,
             )
 
+    async def _cancel_task(self, task: asyncio.Task[None] | None) -> None:
+        """Cancel a task and wait for completion."""
+        if task and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def _clear_event_queue(self) -> None:
+        """Drop any queued streaming events and release the queue."""
+        queue = self._event_queue
+        if queue is None:
+            return
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self._event_queue = None
+
     async def disconnect(self) -> None:
         """Disconnect from the Oppo player."""
         self._stop_streaming_requested = True
-        if self._streaming_task and not self._streaming_task.done():
-            self._streaming_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._streaming_task
-            self._streaming_task = None
+
+        await self._cancel_task(self._streaming_task)
+        self._streaming_task = None
+        await self._cancel_task(self._dispatcher_task)
+        self._dispatcher_task = None
 
         # Clear pending command/response state on explicit disconnect.
         pending = self._pending_response
         self._pending_response = None
         self._pending_command = None
-        if pending is not None:
+        if pending is not None and not pending.done():
             with contextlib.suppress(asyncio.InvalidStateError):
                 pending.set_result(None)
+
+        self._clear_event_queue()
+        self._streaming_callbacks.clear()
 
         if self._writer:
             try:
@@ -606,21 +629,28 @@ class OppoClient:
         """Start receiving streaming updates from the player.
 
         First enables verbose mode 3 (detailed unsolicited status updates
-        including playback progress), then starts a background reader loop
-        that parses incoming events and calls the callback with parsed
-        event tuples.
+        including playback progress), then starts background reader/dispatcher
+        tasks. Reader parses frames and enqueues events; dispatcher calls
+        callbacks. This keeps socket reads decoupled from callback speed.
 
         Args:
             callback: Called with each streaming event tuple.
             on_disconnect: Optional callback called when the connection is lost.
-
         """
         self._disconnect_callback = on_disconnect
         self._stop_streaming_requested = False
         # Keep only the active subscriber callback to avoid duplicated events
         # after reconnect cycles.
         self._streaming_callbacks = [callback]
+
         await self.set_verbose_mode(3)
+
+        if self._event_queue is None:
+            self._event_queue = asyncio.Queue(maxsize=DEFAULT_STREAM_EVENT_QUEUE_SIZE)
+
+        if self._dispatcher_task is None or self._dispatcher_task.done():
+            self._dispatcher_task = asyncio.create_task(self._dispatch_streaming_events())
+
         if self._streaming_task and not self._streaming_task.done():
             return
         self._streaming_task = asyncio.create_task(self._streaming_loop())
@@ -628,12 +658,50 @@ class OppoClient:
     async def stop_streaming(self) -> None:
         """Stop streaming updates."""
         self._stop_streaming_requested = True
-        if self._streaming_task and not self._streaming_task.done():
-            self._streaming_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._streaming_task
+
+        await self._cancel_task(self._streaming_task)
         self._streaming_task = None
+
+        await self._cancel_task(self._dispatcher_task)
+        self._dispatcher_task = None
+
+        self._clear_event_queue()
         self._streaming_callbacks.clear()
+
+    def _enqueue_streaming_event(self, event: tuple[str, str]) -> None:
+        """Enqueue event without blocking the socket reader."""
+        queue = self._event_queue
+        if queue is None:
+            return
+
+        if not queue.full():
+            queue.put_nowait(event)
+            return
+
+        # Keep freshest telemetry under load.
+        with contextlib.suppress(asyncio.QueueEmpty):
+            queue.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            queue.put_nowait(event)
+
+    async def _dispatch_streaming_events(self) -> None:
+        """Drain queued events and invoke callbacks."""
+        try:
+            while True:
+                queue = self._event_queue
+                if queue is None:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                event = await queue.get()
+                for cb in list(self._streaming_callbacks):
+                    try:
+                        cb(event)
+                    except Exception:
+                        _LOGGER.exception("Error in streaming callback")
+        except asyncio.CancelledError:
+            _LOGGER.debug("Streaming event dispatcher task cancelled")
+            raise
 
     async def _streaming_loop(self) -> None:
         """Background loop reading streaming events from the player."""
@@ -651,11 +719,7 @@ class OppoClient:
 
                     event = self._parse_streaming_frame(frame)
                     if event:
-                        for cb in self._streaming_callbacks:
-                            try:
-                                cb(event)
-                            except Exception:
-                                _LOGGER.exception("Error in streaming callback")
+                        self._enqueue_streaming_event(event)
                 except asyncio.CancelledError:
                     raise
                 except asyncio.IncompleteReadError, OSError:
@@ -667,12 +731,10 @@ class OppoClient:
                     await asyncio.sleep(1)
         finally:
             # Complete any pending command response with None
-            if self._pending_response is not None:
+            if self._pending_response and not self._pending_response.done():
                 with contextlib.suppress(asyncio.InvalidStateError):
                     self._pending_response.set_result(None)
             self._pending_command = None
-
-            self._streaming_callbacks.clear()
 
             # On unexpected disconnect, explicitly close transport and clear
             # stream objects to avoid stale writer/reader references.
@@ -696,9 +758,12 @@ class OppoClient:
                     _LOGGER.exception("Error in disconnect callback")
 
     def _try_complete_pending_response(self, frame: str) -> bool:
-        """Try to dispatch a frame as a command response.
+        """Handle a frame through command-response dispatch.
 
-        Returns True if the frame was consumed as a command response.
+        Returns True when the frame is consumed by command-response handling
+        (including accepted responses and ignored mismatched command responses).
+        Returns False when the frame is not a command response for this handler
+        and should be processed by streaming-event parsing.
         """
         pending = self._pending_response
         if pending is None or pending.done():
@@ -706,12 +771,14 @@ class OppoClient:
 
         # Direct @OK/@ER response (no command code available)
         if frame.startswith(("@OK", "@ER")):
-            pending.set_result(frame)
+            with contextlib.suppress(asyncio.InvalidStateError):
+                pending.set_result(frame)
             return True
 
         # Legacy response without '@' prefix
         if frame.startswith(("OK", "ER")) and (len(frame) == 2 or frame[2] == " "):
-            pending.set_result("@" + frame)
+            with contextlib.suppress(asyncio.InvalidStateError):
+                pending.set_result("@" + frame)
             return True
 
         # Streaming format command response: @CMD OK/ER ...
@@ -720,7 +787,8 @@ class OppoClient:
             if payload.startswith(("OK", "ER")) and (len(payload) == 2 or payload[2] == " "):
                 expected_raw = self._pending_command
                 if not expected_raw:
-                    return False
+                    # Still consume command-response-shaped frames.
+                    return True
 
                 expected_code = self._command_code(expected_raw)
                 actual_code = frame[1:4].upper()
@@ -730,10 +798,11 @@ class OppoClient:
                     actual_code,
                     payload,
                 ):
-                    pending.set_result("@" + payload)
+                    with contextlib.suppress(asyncio.InvalidStateError):
+                        pending.set_result("@" + payload)
                     return True
 
-                _LOGGER.debug(
+                _LOGGER.warning(
                     "Ignoring mismatched command response while waiting for %s: %s",
                     expected_code,
                     frame,
