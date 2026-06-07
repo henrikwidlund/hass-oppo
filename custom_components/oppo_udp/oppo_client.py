@@ -151,7 +151,8 @@ class OppoClient:
                 timeout=DEFAULT_TIMEOUT,
             )
 
-    async def _cancel_task(self, task: asyncio.Task[None] | None) -> None:
+    @staticmethod
+    async def _cancel_task(task: asyncio.Task[None] | None) -> None:
         """Cancel a task and wait for completion."""
         if task and not task.done():
             task.cancel()
