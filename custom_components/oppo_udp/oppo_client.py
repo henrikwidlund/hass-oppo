@@ -751,6 +751,15 @@ class OppoClient:
                     except Exception:  # noqa: BLE001
                         _LOGGER.debug("Error closing writer after streaming disconnect")
 
+                # Unexpected reader loop exit should tear down dispatcher + queue
+                # because stop_streaming() is not called on this path.
+                await self._cancel_task(self._dispatcher_task)
+                self._dispatcher_task = None
+                self._clear_event_queue()
+
+            # Mark reader task as not running.
+            self._streaming_task = None
+
             # Notify the caller that the connection was lost
             if not self._stop_streaming_requested and self._disconnect_callback is not None:
                 try:
