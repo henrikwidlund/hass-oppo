@@ -5,7 +5,7 @@ description = "Home Assistant integration for Oppo UDP-20X players"
 requires-python = ">=3.14.2"
 dependencies = [
     "homeassistant==2026.6.1",
-    "voluptuous==0.16.0",
+    "voluptuous==0.15.2",
 ]
 
 [dependency-groups]

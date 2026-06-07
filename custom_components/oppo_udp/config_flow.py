@@ -46,7 +46,6 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 if await client.connect():
                     power_state = await client.query_power_status()
-                    await client.disconnect()
 
                     if power_state == PowerState.UNKNOWN:
                         errors["base"] = "cannot_connect"
