@@ -55,7 +55,11 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
                         )
 
                     # Normalize host for stable unique IDs across casing/input forms.
-                    normalized_host = urlsplit(f"//{host}").hostname or host
+                    normalized_host = host.strip()
+                    if normalized_host.startswith("[") and normalized_host.endswith("]"):
+                        normalized_host = normalized_host[1:-1]
+                    elif ":" not in normalized_host:
+                        normalized_host = urlsplit(f"//{normalized_host}").hostname or normalized_host
                     await self.async_set_unique_id(normalized_host.lower())
                     self._abort_if_unique_id_configured()
 

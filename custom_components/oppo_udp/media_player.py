@@ -123,7 +123,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def device_info(self) -> DeviceInfo | None:
         """Return device info."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)}, name=self._name, manufacturer="Oppo Digital", model=self._model
+            identifiers={(DOMAIN, self._client.host)},
+            name=self._name,
+            manufacturer="Oppo Digital",
+            model=self._model,
         )
 
     @property
