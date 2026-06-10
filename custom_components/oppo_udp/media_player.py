@@ -148,6 +148,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._last_title: int | None = None
         self._rebuild_in_progress = False
+        self._rebuild_pending = False
 
         # Input sources based on model
         if model == MODEL_UDP205:
@@ -511,8 +512,15 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
     def _schedule_rebuild_snapshot(self) -> None:
-        """Schedule a rebuild task, deduping concurrent requests."""
+        """Schedule a rebuild task, coalescing concurrent requests.
+
+        A request that arrives while a rebuild is in flight is not dropped —
+        it sets a pending flag, and one additional rebuild is run when the
+        current rebuild finishes so any state-invalidating event observed
+        mid-rebuild is still reflected in the final snapshot.
+        """
         if self._rebuild_in_progress:
+            self._rebuild_pending = True
             return
         self._rebuild_in_progress = True
         self.hass.async_create_task(self._rebuild_snapshot(), name="oppo_udp_rebuild_snapshot")
@@ -574,6 +582,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         finally:
             self._rebuild_in_progress = False
         self.async_write_ha_state()
+        # If an invalidating event arrived during the rebuild, run one more
+        # pass so the snapshot reflects the latest player state.
+        if self._rebuild_pending:
+            self._rebuild_pending = False
+            self._schedule_rebuild_snapshot()
 
     @staticmethod
     def _streaming_playback_to_enum(status: str) -> PlaybackStatus:
