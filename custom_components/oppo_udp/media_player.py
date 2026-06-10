@@ -11,15 +11,17 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaPlayerState,
     MediaType,
+    RepeatMode as HARepeatMode,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, INPUT_SOURCES_UDP203, INPUT_SOURCES_UDP205, MODEL_UDP205
-from .oppo_client import OppoClient, PlaybackStatus, PowerState
+from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +31,18 @@ if TYPE_CHECKING:
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+
+_OPPO_TO_HA_REPEAT: dict[RepeatMode, HARepeatMode] = {
+    RepeatMode.OFF: HARepeatMode.OFF,
+    RepeatMode.CHAPTER: HARepeatMode.ONE,
+    RepeatMode.TITLE: HARepeatMode.ONE,
+    RepeatMode.ALL: HARepeatMode.ALL,
+    RepeatMode.SHUFFLE: HARepeatMode.OFF,
+    RepeatMode.RANDOM: HARepeatMode.OFF,
+}
+
+_AUDIO_DISC_TYPES = frozenset({"cdda", "sacd", "dvd-audio"})
 
 
 PLAYBACK_TO_STATE = {
@@ -67,6 +81,20 @@ async def async_setup_entry(
     entity = OppoUDPMediaPlayer(client, name, model, config_entry.entry_id)
     async_add_entities([entity])
 
+    platform = entity_platform.async_get_current_platform()
+    for service_name, method in _ENTITY_SERVICES:
+        platform.async_register_entity_service(service_name, None, method)
+
+
+_ENTITY_SERVICES: tuple[tuple[str, str], ...] = (
+    ("dimmer", "async_dimmer"),
+    ("pure_audio_toggle", "async_pure_audio_toggle"),
+    ("info_toggle", "async_info_toggle"),
+    ("audio_language_toggle", "async_audio_language_toggle"),
+    ("subtitle_toggle", "async_subtitle_toggle"),
+    ("zoom", "async_zoom"),
+)
+
 
 class OppoUDPMediaPlayer(MediaPlayerEntity):
     """Representation of an Oppo UDP-20X media player."""
@@ -74,6 +102,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_should_poll = False
+    _attr_translation_key = "oppo_udp"
 
     def __init__(
         self,
@@ -104,9 +133,14 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._disc_type: str | None = None
         self._audio_type: str | None = None
         self._subtitle_type: str | None = None
+        self._aspect_ratio: str | None = None
+        self._three_d: str | None = None
+        self._video_resolution: str | None = None
+        self._repeat: HARepeatMode = HARepeatMode.OFF
         self._streaming_active = False
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._last_title: int | None = None
+        self._rebuild_in_progress = False
 
         # Input sources based on model
         if model == MODEL_UDP205:
@@ -143,6 +177,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.VOLUME_STEP
             | MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.SELECT_SOURCE
+            | MediaPlayerEntityFeature.REPEAT_SET
         )
 
     @property
@@ -233,6 +268,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
+    def repeat(self) -> HARepeatMode | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return current repeat mode."""
+        return self._repeat
+
+    @property
+    @override
     def extra_state_attributes(self) -> Mapping[str, Any] | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return extra state attributes."""
         attrs: dict[str, str] = {}
@@ -240,6 +281,14 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             attrs["disc_type"] = self._disc_type
         if self._audio_type:
             attrs["audio_type"] = self._audio_type
+        if self._subtitle_type:
+            attrs["subtitle_type"] = self._subtitle_type
+        if self._aspect_ratio:
+            attrs["aspect_ratio"] = self._aspect_ratio
+        if self._three_d:
+            attrs["three_d"] = self._three_d
+        if self._video_resolution:
+            attrs["video_resolution"] = self._video_resolution
         return attrs
 
     @override
@@ -257,18 +306,22 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     async def _connect_and_stream(self) -> None:
         """Connect and start streaming updates, schedule reconnect on failure."""
-        if await self._client.connect():
-            # Query initial state
-            await self._fetch_initial_state()
-            # Start streaming with disconnect handler
-            await self._client.start_streaming(
-                self._handle_streaming_event,
-                on_disconnect=self._handle_disconnect,
-            )
-            self._streaming_active = True
-        else:
-            # Schedule a reconnection attempt
+        if not await self._client.connect():
             self._schedule_reconnect()
+            return
+
+        # Query initial state
+        await self._fetch_initial_state()
+        # Start streaming with disconnect handler
+        if not await self._client.start_streaming(
+            self._handle_streaming_event,
+            on_disconnect=self._handle_disconnect,
+        ):
+            # Verbose mode could not be enabled — treat as disconnect.
+            self._streaming_active = False
+            self._schedule_reconnect()
+            return
+        self._streaming_active = True
 
     async def _fetch_initial_state(self) -> None:
         """Fetch full state snapshot from the player after connecting."""
@@ -294,6 +347,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._current_source = self._map_input_source_response(raw)
 
         self._disc_type = (await self._client.query_disc_type()).value
+
+        repeat_mode = await self._client.query_repeat_mode()
+        mapped_repeat = _OPPO_TO_HA_REPEAT.get(repeat_mode)
+        if mapped_repeat is not None:
+            self._repeat = mapped_repeat
 
         # Only poll active playback details if actually playing/paused with a
         # known disc type (querying with unknown/data disc can cause issues)
@@ -374,19 +432,16 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @callback
     def _handle_streaming_event(self, event: tuple[str, str]) -> None:
         """Handle a streaming event from the player."""
-        if not event:
-            return
-
         event_type = event[0]
 
         if event_type == "power":
             if event[1] == "on":
                 self._power_state = PowerState.ON
                 # Player turned on — rebuild state
-                self.hass.async_create_task(self._rebuild_snapshot())
-            else:
-                self._power_state = PowerState.OFF
-                self._clear_all_state()
+                self._schedule_rebuild_snapshot()
+                return
+            self._power_state = PowerState.OFF
+            self._clear_all_state()
 
         elif event_type == "playback":
             prev_status = self._playback_status
@@ -398,7 +453,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 PlaybackStatus.PAUSE,
             )
             if is_active and not was_active:
-                self.hass.async_create_task(self._rebuild_snapshot())
+                self._schedule_rebuild_snapshot()
                 return
             if not is_active:
                 self._clear_playback_state()
@@ -414,13 +469,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         elif event_type == "disc_type":
             self._disc_type = event[1]
             # Disc change invalidates everything — rebuild
-            self.hass.async_create_task(self._rebuild_snapshot())
+            self._schedule_rebuild_snapshot()
             return
 
         elif event_type == "input_source":
             self._current_source = self._map_input_source_response(event[1])
             # Source change invalidates track metadata — rebuild
-            self.hass.async_create_task(self._rebuild_snapshot())
+            self._schedule_rebuild_snapshot()
             return
 
         elif event_type == "audio_type":
@@ -429,11 +484,27 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         elif event_type == "subtitle_type":
             self._subtitle_type = event[1]
 
+        elif event_type == "aspect_ratio":
+            self._aspect_ratio = event[1]
+
+        elif event_type == "three_d":
+            self._three_d = event[1]
+
+        elif event_type == "video_resolution":
+            self._video_resolution = event[1]
+
         elif event_type == "time_code":
             self._handle_time_code_event(event[1])
             return  # _handle_time_code_event calls async_write_ha_state if needed
 
         self.async_write_ha_state()
+
+    def _schedule_rebuild_snapshot(self) -> None:
+        """Schedule a rebuild task, deduping concurrent requests."""
+        if self._rebuild_in_progress:
+            return
+        self._rebuild_in_progress = True
+        self.hass.async_create_task(self._rebuild_snapshot(), "oppo_udp_rebuild_snapshot")
 
     def _handle_time_code_event(self, value: str) -> None:
         """Handle a streaming time code event, rebuild on title change."""
@@ -478,6 +549,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._volume_level = None
         self._is_muted = False
         self._current_source = None
+        self._aspect_ratio = None
+        self._three_d = None
+        self._video_resolution = None
+        self._repeat = HARepeatMode.OFF
 
     async def _rebuild_snapshot(self) -> None:
         """Re-poll all state from the player (called on significant changes)."""
@@ -485,6 +560,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             await self._poll_powered_on_state()
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Error rebuilding snapshot", exc_info=True)
+        finally:
+            self._rebuild_in_progress = False
         self.async_write_ha_state()
 
     @staticmethod
@@ -638,6 +715,50 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     async def async_select_source(self, source: str) -> None:
         """Select an input source."""
         source_id = self._source_map.get(source)
-        if source_id is not None:
-            await self._client.set_input_source(source_id)
-            self._current_source = source
+        if source_id is None:
+            return
+        raw = await self._client.set_input_source(source_id)
+        if raw is None:
+            return
+        mapped = self._map_input_source_response(raw)
+        if mapped is not None:
+            self._current_source = mapped
+
+    async def async_dimmer(self) -> None:
+        """Cycle the front-panel dimmer."""
+        await self._client.dimmer()
+
+    async def async_pure_audio_toggle(self) -> None:
+        """Toggle Pure Audio mode."""
+        await self._client.pure_audio_toggle()
+
+    async def async_info_toggle(self) -> None:
+        """Show/hide on-screen display."""
+        await self._client.info_toggle()
+
+    async def async_audio_language_toggle(self) -> None:
+        """Cycle audio language/channel."""
+        await self._client.audio_language_toggle()
+
+    async def async_subtitle_toggle(self) -> None:
+        """Cycle subtitle language."""
+        await self._client.subtitle_toggle()
+
+    async def async_zoom(self) -> None:
+        """Cycle zoom / aspect-ratio mode."""
+        await self._client.zoom()
+
+    @override
+    async def async_set_repeat(self, repeat: HARepeatMode) -> None:
+        """Set repeat mode."""
+        if repeat == HARepeatMode.OFF:
+            oppo_mode = RepeatMode.OFF
+        elif repeat == HARepeatMode.ALL:
+            oppo_mode = RepeatMode.ALL
+        else:
+            # HARepeatMode.ONE — Oppo distinguishes chapter (video) from title/track (audio).
+            oppo_mode = RepeatMode.TITLE if self._disc_type in _AUDIO_DISC_TYPES else RepeatMode.CHAPTER
+        new_mode = await self._client.set_repeat_mode(oppo_mode)
+        mapped = _OPPO_TO_HA_REPEAT.get(new_mode)
+        if mapped is not None:
+            self._repeat = mapped

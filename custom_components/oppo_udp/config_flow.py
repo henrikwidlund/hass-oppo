@@ -40,39 +40,34 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
 
+            # Normalize host for stable unique IDs across casing/input forms.
+            normalized_host = host.strip()
+            if normalized_host.startswith("[") and normalized_host.endswith("]"):
+                normalized_host = normalized_host[1:-1]
+            elif ":" not in normalized_host:
+                normalized_host = urlsplit(f"//{normalized_host}").hostname or normalized_host
+            await self.async_set_unique_id(normalized_host.lower())
+            self._abort_if_unique_id_configured()
+
             # Test the connection
             client = OppoClient(host, port=port)
+            connected = False
             try:
-                if await client.connect():
+                connected = await client.connect()
+                if connected:
                     power_state = await client.query_power_status()
-
-                    if power_state == PowerState.UNKNOWN:
-                        errors["base"] = "cannot_connect"
-                        return self.async_show_form(
-                            step_id="user",
-                            data_schema=STEP_USER_DATA_SCHEMA,
-                            errors=errors,
+                    if power_state != PowerState.UNKNOWN:
+                        return self.async_create_entry(
+                            title=user_input[CONF_NAME],
+                            data=user_input,
                         )
-
-                    # Normalize host for stable unique IDs across casing/input forms.
-                    normalized_host = host.strip()
-                    if normalized_host.startswith("[") and normalized_host.endswith("]"):
-                        normalized_host = normalized_host[1:-1]
-                    elif ":" not in normalized_host:
-                        normalized_host = urlsplit(f"//{normalized_host}").hostname or normalized_host
-                    await self.async_set_unique_id(normalized_host.lower())
-                    self._abort_if_unique_id_configured()
-
-                    return self.async_create_entry(
-                        title=user_input[CONF_NAME],
-                        data=user_input,
-                    )
                 errors["base"] = "cannot_connect"
             except Exception:
                 _LOGGER.exception("Unexpected exception during connection test")
                 errors["base"] = "cannot_connect"
             finally:
-                await client.disconnect()
+                if connected:
+                    await client.disconnect()
 
         return self.async_show_form(
             step_id="user",
