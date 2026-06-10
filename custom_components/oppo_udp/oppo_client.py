@@ -218,7 +218,7 @@ class OppoClient:
             writer.close()
             await writer.wait_closed()
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("Error closing writer during teardown")
+            _LOGGER.debug("Error closing writer during teardown", exc_info=True)
 
     @staticmethod
     async def _cancel_task(task: asyncio.Task[None] | None) -> None:
@@ -265,7 +265,7 @@ class OppoClient:
                 self._writer.close()
                 await self._writer.wait_closed()
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("Error closing writer during disconnect")
+                _LOGGER.debug("Error closing writer during disconnect", exc_info=True)
         self._writer = None
         self._reader = None
         self._connected = False
@@ -866,7 +866,7 @@ class OppoClient:
                         writer.close()
                         await writer.wait_closed()
                     except Exception:  # noqa: BLE001
-                        _LOGGER.debug("Error closing writer after streaming disconnect")
+                        _LOGGER.debug("Error closing writer after streaming disconnect", exc_info=True)
 
                 # Unexpected reader loop exit should tear down dispatcher + queue
                 # because stop_streaming() is not called on this path.

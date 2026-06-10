@@ -786,3 +786,5 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         mapped = _OPPO_TO_HA_REPEAT.get(new_mode)
         if mapped is not None:
             self._repeat = mapped
+            # No streaming event reports repeat changes, so push state ourselves.
+            self.async_write_ha_state()
