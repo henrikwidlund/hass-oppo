@@ -27,13 +27,21 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 
 def _normalize_host(host: str) -> str:
-    """Strip whitespace and bracketed IPv6 framing from a user-supplied host."""
+    """Normalize a user-supplied host (port and brackets handled separately).
+
+    Strips whitespace, removes IPv6 bracket framing, and discards a trailing
+    ``:port`` for plain hostnames or IPv4 literals (the port is configured
+    separately). Bare IPv6 literals are returned unchanged because they cannot
+    carry a port without brackets.
+    """
     normalized = host.strip()
-    if normalized.startswith("[") and normalized.endswith("]"):
-        return normalized[1:-1]
-    if ":" not in normalized:
-        return urlsplit(f"//{normalized}").hostname or normalized
-    return normalized
+    if normalized.startswith("["):
+        end = normalized.find("]")
+        if end > 0:
+            return normalized[1:end]
+    if normalized.count(":") >= 2:
+        return normalized
+    return urlsplit(f"//{normalized}").hostname or normalized
 
 
 class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):

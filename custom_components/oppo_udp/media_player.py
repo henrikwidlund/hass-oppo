@@ -349,9 +349,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._disc_type = (await self._client.query_disc_type()).value
 
         repeat_mode = await self._client.query_repeat_mode()
-        mapped_repeat = _OPPO_TO_HA_REPEAT.get(repeat_mode)
-        if mapped_repeat is not None:
-            self._repeat = mapped_repeat
+        # Fall back to OFF if the player returned an unknown or unmapped mode
+        # so we don't leave a stale value visible in the UI.
+        self._repeat = _OPPO_TO_HA_REPEAT.get(repeat_mode, HARepeatMode.OFF)
 
         # Only poll active playback details if actually playing/paused with a
         # known disc type (querying with unknown/data disc can cause issues)
@@ -526,7 +526,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 # position freeze/jump while waiting for the rebuild.
                 self._parse_time_code_event(value)
                 self.async_write_ha_state()
-                self.hass.async_create_task(self._rebuild_snapshot())
+                self._schedule_rebuild_snapshot()
                 return
 
         # Same title — just update position
