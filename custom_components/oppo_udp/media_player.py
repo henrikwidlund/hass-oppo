@@ -522,7 +522,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._schedule_rebuild_snapshot()
                 return
             if not is_active:
-                self._clear_playback_state()
+                self._clear_playback_metadata()
 
         elif event_type == "volume":
             if event[1] == "mute":
@@ -643,6 +643,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         Shared by playback-stop, disc-change and input-source-change handlers —
         all three invalidate position, track metadata, repeat/shuffle and HDR.
+        ``playback_status`` is intentionally preserved: callers either keep the
+        streaming-supplied value or leave the previous one in place. Video
+        attributes (aspect ratio / 3D / HDMI resolution) are cleared by
+        ``_clear_video_state`` on the disc/source paths only — the player
+        keeps reporting them across playback-active transitions.
         """
         self._snapshot.media_position = None
         self._snapshot.media_position_updated_at = None
@@ -656,16 +661,6 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.repeat = HARepeatMode.OFF
         self._snapshot.shuffle = False
         self._snapshot.hdr_status = None
-
-    def _clear_playback_state(self) -> None:
-        """Clear playback-specific state on a non-active playback transition.
-
-        Aspect ratio, 3D and HDMI resolution survive because the player keeps
-        reporting them; they are cleared by ``_clear_video_state`` on
-        disc/source changes and by power off.
-        """
-        self._snapshot.playback_status = PlaybackStatus.UNKNOWN
-        self._clear_playback_metadata()
 
     def _clear_video_state(self) -> None:
         """Clear video-only attributes (aspect ratio, 3D, HDR, HDMI resolution)."""
