@@ -690,16 +690,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("Error rebuilding snapshot", exc_info=True)
         finally:
             self._rebuild_in_progress = False
+
+        # If an invalidating streaming event arrived during the rebuild, the
+        # result we just built is already stale — skip the swap entirely and
+        # let the follow-up rebuild produce the snapshot that gets applied.
+        if self._rebuild_pending:
+            self._rebuild_pending = False
+            self._schedule_rebuild_snapshot()
+            return
+
         if new_snapshot is not None and not self._streaming_event_invalidated_rebuild(new_snapshot):
             # Atomic swap — any field the rebuild didn't populate falls back to
             # its dataclass default, so no stale value can survive.
             self._snapshot = new_snapshot
             self.async_write_ha_state()
-        # If an invalidating event arrived during the rebuild, run one more
-        # pass so the snapshot reflects the latest player state.
-        if self._rebuild_pending:
-            self._rebuild_pending = False
-            self._schedule_rebuild_snapshot()
 
     @staticmethod
     def _streaming_playback_to_enum(status: str) -> PlaybackStatus:
