@@ -108,6 +108,13 @@ _SRP_REPLY_TO_REPEAT_MODE: dict[str, RepeatMode] = {
     "RND": RepeatMode.RANDOM,
 }
 
+_HDR_RESPONSE_TO_VALUE: dict[str, str] = {
+    "HDR": "hdr10",
+    "SDR": "sdr",
+    "DOV": "dolby_vision",
+}
+
+
 _QRP_REPLY_TO_REPEAT_MODE: dict[str, RepeatMode] = {
     "00 Off": RepeatMode.OFF,
     "01 Repeat One": RepeatMode.CHAPTER,
@@ -709,6 +716,29 @@ class OppoClient:
     async def query_subtitle_type(self) -> str | None:
         """Query subtitle type."""
         return self._parse_ok_response(await self._send_command("QST"))
+
+    async def query_aspect_ratio(self) -> str | None:
+        """Query aspect ratio. Returns lowercase code matching streaming UAR."""
+        response = self._parse_ok_response(await self._send_command("QAR"))
+        return response.lower() if response else response
+
+    async def query_three_d_status(self) -> str | None:
+        """Query 3D status. Returns ``'3d'`` or ``'2d'``."""
+        response = self._parse_ok_response(await self._send_command("Q3D"))
+        if response is None:
+            return None
+        return "3d" if response.upper() == "3D" else "2d"
+
+    async def query_hdmi_resolution(self) -> str | None:
+        """Query the current HDMI output resolution."""
+        return self._parse_ok_response(await self._send_command("QHD"))
+
+    async def query_hdr_status(self) -> str | None:
+        """Query HDR status. Returns ``'hdr10'``, ``'sdr'``, ``'dolby_vision'`` or ``None``."""
+        response = self._parse_ok_response(await self._send_command("QHS"))
+        if response is None:
+            return None
+        return _HDR_RESPONSE_TO_VALUE.get(response.upper())
 
     # --- Verbose mode ---
 

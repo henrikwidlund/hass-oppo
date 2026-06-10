@@ -62,6 +62,14 @@
               "3d": "3D"
             }
           },
+          "hdr_status": {
+            "name": "HDR",
+            "state": {
+              "hdr10": "HDR10",
+              "sdr": "SDR",
+              "dolby_vision": "Dolby Vision"
+            }
+          },
           "audio_type": {
             "name": "Audio type"
           },
