@@ -575,9 +575,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     def _is_uhd_active_playback(self) -> bool:
         """True when a UHD Blu-Ray is actively playing/paused."""
-        return (
-            self._snapshot.disc_type == "uhbd"
-            and self._snapshot.playback_status in (PlaybackStatus.PLAY, PlaybackStatus.PAUSE)
+        return self._snapshot.disc_type == "uhbd" and self._snapshot.playback_status in (
+            PlaybackStatus.PLAY,
+            PlaybackStatus.PAUSE,
         )
 
     async def _refresh_hdr(self) -> None:
