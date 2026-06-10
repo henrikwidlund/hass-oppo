@@ -26,6 +26,16 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
+def _normalize_host(host: str) -> str:
+    """Strip whitespace and bracketed IPv6 framing from a user-supplied host."""
+    normalized = host.strip()
+    if normalized.startswith("[") and normalized.endswith("]"):
+        return normalized[1:-1]
+    if ":" not in normalized:
+        return urlsplit(f"//{normalized}").hostname or normalized
+    return normalized
+
+
 class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Oppo UDP-20X."""
 
@@ -37,20 +47,18 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            host = user_input[CONF_HOST]
+            # Normalize host so the unique ID, connection test, and the stored
+            # config entry all agree (handles bracketed IPv6, stray whitespace,
+            # and case-folding for the unique ID lookup).
+            normalized_host = _normalize_host(user_input[CONF_HOST])
+            user_input[CONF_HOST] = normalized_host
             port = user_input[CONF_PORT]
 
-            # Normalize host for stable unique IDs across casing/input forms.
-            normalized_host = host.strip()
-            if normalized_host.startswith("[") and normalized_host.endswith("]"):
-                normalized_host = normalized_host[1:-1]
-            elif ":" not in normalized_host:
-                normalized_host = urlsplit(f"//{normalized_host}").hostname or normalized_host
             await self.async_set_unique_id(normalized_host.lower())
             self._abort_if_unique_id_configured()
 
             # Test the connection
-            client = OppoClient(host, port=port)
+            client = OppoClient(normalized_host, port=port)
             connected = False
             try:
                 connected = await client.connect()
