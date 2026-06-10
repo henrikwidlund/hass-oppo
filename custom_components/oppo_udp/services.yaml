@@ -1,0 +1,35 @@
+dimmer:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+pure_audio_toggle:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+info_toggle:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+audio_language_toggle:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+subtitle_toggle:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+zoom:
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
