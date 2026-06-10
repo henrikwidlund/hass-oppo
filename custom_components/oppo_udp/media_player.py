@@ -348,9 +348,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._handle_streaming_event,
             on_disconnect=self._handle_disconnect,
         ):
-            # Verbose mode could not be enabled — treat as disconnect.
-            self._streaming_active = False
-            self._schedule_reconnect()
+            # Verbose mode could not be enabled — treat as a disconnect so
+            # the UI is updated immediately and a reconnect is scheduled.
+            self._handle_disconnect()
             return
         self._streaming_active = True
 
@@ -535,16 +535,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         elif event_type == "disc_type":
             self._snapshot.disc_type = event[1]
             # Disc change invalidates everything — drop stale video attributes
-            # immediately and let the rebuild repopulate them.
+            # immediately and let the rebuild repopulate them. Push the cleared
+            # state right away so the UI does not keep showing old attrs while
+            # the async rebuild runs.
             self._clear_video_state()
+            self.async_write_ha_state()
             self._schedule_rebuild_snapshot()
             return
 
         elif event_type == "input_source":
             self._snapshot.current_source = self._map_input_source_response(event[1])
             # Source change can invalidate track metadata and the video
-            # pipeline — clear and rebuild.
+            # pipeline — clear and rebuild. Push state immediately so the
+            # cleared attrs aren't visible until the async rebuild lands.
             self._clear_video_state()
+            self.async_write_ha_state()
             self._schedule_rebuild_snapshot()
             return
 
