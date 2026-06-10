@@ -674,6 +674,18 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.hdr_status = None
         self._snapshot.video_resolution = None
 
+    def _streaming_event_invalidated_rebuild(self, new_snapshot: _Snapshot) -> bool:
+        """Return True if a streaming event made the rebuild result stale.
+
+        Streaming events mutate ``self._snapshot`` in place while the async
+        rebuild is in flight. If the rebuild was building a powered-on
+        snapshot but the player flipped to OFF (or the connection dropped
+        and ``_handle_disconnect`` reset everything) we must not overwrite
+        that more recent state with the stale rebuild.
+        """
+        current = self._snapshot.power_state
+        return current != new_snapshot.power_state and current in (PowerState.OFF, PowerState.UNKNOWN)
+
     async def _rebuild_snapshot(self) -> None:
         """Re-poll all state from the player and swap snapshots atomically."""
         new_snapshot: _Snapshot | None = None
@@ -683,7 +695,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             _LOGGER.debug("Error rebuilding snapshot", exc_info=True)
         finally:
             self._rebuild_in_progress = False
-        if new_snapshot is not None:
+        if new_snapshot is not None and not self._streaming_event_invalidated_rebuild(new_snapshot):
             # Atomic swap — any field the rebuild didn't populate falls back to
             # its dataclass default, so no stale value can survive.
             self._snapshot = new_snapshot
