@@ -485,7 +485,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._subtitle_type = event[1]
 
         elif event_type == "aspect_ratio":
-            self._aspect_ratio = event[1]
+            self._aspect_ratio = event[1].lower()
 
         elif event_type == "three_d":
             self._three_d = event[1]

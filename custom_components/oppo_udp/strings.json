@@ -41,18 +41,18 @@
           "aspect_ratio": {
             "name": "Aspect ratio",
             "state": {
-              "16WW": "16:9 Wide",
-              "16AW": "16:9 Wide Auto - Wide",
-              "16A4": "16:9 Wide Auto - 4:3",
-              "21M0": "21:9 Movable - Full Screen",
-              "21M1": "21:9 Movable - 16:9 or 4:3",
-              "21M2": "21:9 Movable - 21:9",
-              "21F0": "21:9 Fixed - Full Screen",
-              "21F1": "21:9 Fixed - 16:9 or 4:3",
-              "21F2": "21:9 Fixed - 21:9",
-              "21C0": "21:9 Cropped - Full Screen",
-              "21C1": "21:9 Cropped - 16:9 or 4:3",
-              "21C2": "21:9 Cropped - 21:9"
+              "16ww": "16:9 Wide",
+              "16aw": "16:9 Wide Auto - Wide",
+              "16a4": "16:9 Wide Auto - 4:3",
+              "21m0": "21:9 Movable - Full Screen",
+              "21m1": "21:9 Movable - 16:9 or 4:3",
+              "21m2": "21:9 Movable - 21:9",
+              "21f0": "21:9 Fixed - Full Screen",
+              "21f1": "21:9 Fixed - 16:9 or 4:3",
+              "21f2": "21:9 Fixed - 21:9",
+              "21c0": "21:9 Cropped - Full Screen",
+              "21c1": "21:9 Cropped - 16:9 or 4:3",
+              "21c2": "21:9 Cropped - 21:9"
             }
           },
           "three_d": {
