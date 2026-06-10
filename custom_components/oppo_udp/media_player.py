@@ -534,23 +534,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         elif event_type == "disc_type":
             self._snapshot.disc_type = event[1]
-            # Disc change invalidates everything — drop stale video attributes
-            # immediately and let the rebuild repopulate them. Push the cleared
-            # state right away so the UI does not keep showing old attrs while
-            # the async rebuild runs.
-            self._clear_video_state()
-            self.async_write_ha_state()
-            self._schedule_rebuild_snapshot()
+            # Disc change invalidates everything tied to the previous disc:
+            # playback metadata (title/album/artist, audio/subtitle types,
+            # repeat/shuffle/HDR, position/duration) and video pipeline
+            # attributes. Preserve playback_status — its own streaming event
+            # will deliver the new value.
+            self._handle_invalidating_change()
             return
 
         elif event_type == "input_source":
             self._snapshot.current_source = self._map_input_source_response(event[1])
-            # Source change can invalidate track metadata and the video
-            # pipeline — clear and rebuild. Push state immediately so the
-            # cleared attrs aren't visible until the async rebuild lands.
-            self._clear_video_state()
-            self.async_write_ha_state()
-            self._schedule_rebuild_snapshot()
+            # Source change can invalidate the entire playback domain —
+            # same scope as a disc change.
+            self._handle_invalidating_change()
             return
 
         elif event_type == "audio_type":
@@ -594,6 +590,17 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             return
         self.async_write_ha_state()
 
+    def _handle_invalidating_change(self) -> None:
+        """Apply the common cleanup for disc/input-source streaming events.
+
+        Drops stale playback metadata and video attributes immediately so the
+        UI doesn't keep showing old values while the async rebuild runs.
+        """
+        self._clear_playback_metadata()
+        self._clear_video_state()
+        self.async_write_ha_state()
+        self._schedule_rebuild_snapshot()
+
     def _schedule_rebuild_snapshot(self) -> None:
         """Schedule a rebuild task, coalescing concurrent requests.
 
@@ -631,15 +638,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._parse_time_code_event(value)
         self.async_write_ha_state()
 
-    def _clear_playback_state(self) -> None:
-        """Clear playback-specific state fields.
+    def _clear_playback_metadata(self) -> None:
+        """Clear fields tied to the currently-playing content.
 
-        Playback-stop only clears fields that no longer make sense
-        (position, duration, track metadata, repeat, HDR, etc.). Aspect ratio,
-        3D and HDMI resolution survive because the player keeps reporting them;
-        they are cleared by ``_clear_video_state`` on disc/source changes and by power off.
+        Shared by playback-stop, disc-change and input-source-change handlers —
+        all three invalidate position, track metadata, repeat/shuffle and HDR.
         """
-        self._snapshot.playback_status = PlaybackStatus.UNKNOWN
         self._snapshot.media_position = None
         self._snapshot.media_position_updated_at = None
         self._snapshot.media_duration = None
@@ -652,6 +656,16 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.repeat = HARepeatMode.OFF
         self._snapshot.shuffle = False
         self._snapshot.hdr_status = None
+
+    def _clear_playback_state(self) -> None:
+        """Clear playback-specific state on a non-active playback transition.
+
+        Aspect ratio, 3D and HDMI resolution survive because the player keeps
+        reporting them; they are cleared by ``_clear_video_state`` on
+        disc/source changes and by power off.
+        """
+        self._snapshot.playback_status = PlaybackStatus.UNKNOWN
+        self._clear_playback_metadata()
 
     def _clear_video_state(self) -> None:
         """Clear video-only attributes (aspect ratio, 3D, HDR, HDMI resolution)."""
