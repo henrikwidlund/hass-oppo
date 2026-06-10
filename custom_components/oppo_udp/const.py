@@ -2,9 +2,7 @@
 
 DOMAIN = "oppo_udp"
 
-CONF_HOST = "host"
 CONF_MODEL = "model"
-CONF_PORT = "port"
 
 DEFAULT_PORT = 23
 DEFAULT_TIMEOUT = 3.0

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 from enum import StrEnum
 import logging
+import socket
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -77,6 +78,68 @@ class InputSource(StrEnum):
     UNKNOWN = "unknown"
 
 
+class RepeatMode(StrEnum):
+    """Repeat playback mode."""
+
+    OFF = "off"
+    CHAPTER = "chapter"
+    TITLE = "title"
+    ALL = "all"
+    SHUFFLE = "shuffle"
+    RANDOM = "random"
+    UNKNOWN = "unknown"
+
+
+_REPEAT_MODE_TO_SRP_ARG: dict[RepeatMode, str] = {
+    RepeatMode.OFF: "OFF",
+    RepeatMode.CHAPTER: "CH",
+    RepeatMode.TITLE: "TT",
+    RepeatMode.ALL: "ALL",
+    RepeatMode.SHUFFLE: "SHF",
+    RepeatMode.RANDOM: "RND",
+}
+
+_SRP_REPLY_TO_REPEAT_MODE: dict[str, RepeatMode] = {
+    "OFF": RepeatMode.OFF,
+    "CH": RepeatMode.CHAPTER,
+    "TT": RepeatMode.TITLE,
+    "ALL": RepeatMode.ALL,
+    "SHF": RepeatMode.SHUFFLE,
+    "RND": RepeatMode.RANDOM,
+}
+
+_HDR_RESPONSE_TO_VALUE: dict[str, str] = {
+    "HDR": "hdr10",
+    "SDR": "sdr",
+    "DOV": "dolby_vision",
+}
+
+
+_QRP_REPLY_TO_REPEAT_MODE: dict[str, RepeatMode] = {
+    "00 Off": RepeatMode.OFF,
+    "01 Repeat One": RepeatMode.CHAPTER,
+    "02 Repeat Chapter": RepeatMode.CHAPTER,
+    "03 Repeat All": RepeatMode.ALL,
+    "04 Repeat Title": RepeatMode.TITLE,
+    "05 Shuffle": RepeatMode.SHUFFLE,
+    "06 Random": RepeatMode.RANDOM,
+}
+
+
+def _parse_repeat_set_response(response: str | None) -> RepeatMode:
+    """Parse response payload from `SRP` set repeat-mode command."""
+    if response is None:
+        return RepeatMode.UNKNOWN
+    return _SRP_REPLY_TO_REPEAT_MODE.get(response, RepeatMode.UNKNOWN)
+
+
+def _parse_repeat_query_response(response: str | None) -> RepeatMode:
+    """Parse response payload from `QRP` query repeat-mode command."""
+    if response is None:
+        return RepeatMode.UNKNOWN
+    return _QRP_REPLY_TO_REPEAT_MODE.get(response, RepeatMode.UNKNOWN)
+
+
 class OppoClient:
     """TCP client for Oppo UDP-20X players."""
 
@@ -116,12 +179,9 @@ class OppoClient:
         try:
             self._reader, self._writer = await self._do_connect()
             # Disable Nagle's algorithm for immediate command delivery
-            writer = self._writer
-            import socket as socket_module  # noqa: PLC0415
-
-            raw_sock = writer.get_extra_info("socket")
+            raw_sock = self._writer.get_extra_info("socket")
             if raw_sock is not None:
-                raw_sock.setsockopt(socket_module.IPPROTO_TCP, socket_module.TCP_NODELAY, 1)
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
         except OSError:
@@ -130,7 +190,9 @@ class OppoClient:
                 self._host,
                 self._port,
             )
-            self._connected = False
+            # If the writer was created before the failure (e.g. setsockopt
+            # raised), close it so we don't leak a half-open transport.
+            await self._teardown_connection()
             return False
         else:
             return True
@@ -150,6 +212,20 @@ class OppoClient:
                 asyncio.open_connection(self._host, self._port),
                 timeout=DEFAULT_TIMEOUT,
             )
+
+    async def _teardown_connection(self) -> None:
+        """Close transport and clear stream references."""
+        self._connected = False
+        writer = self._writer
+        self._writer = None
+        self._reader = None
+        if writer is None:
+            return
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Error closing writer during teardown", exc_info=True)
 
     @staticmethod
     async def _cancel_task(task: asyncio.Task[None] | None) -> None:
@@ -196,7 +272,7 @@ class OppoClient:
                 self._writer.close()
                 await self._writer.wait_closed()
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("Error closing writer during disconnect")
+                _LOGGER.debug("Error closing writer during disconnect", exc_info=True)
         self._writer = None
         self._reader = None
         self._connected = False
@@ -288,7 +364,7 @@ class OppoClient:
             # Handle streaming format: @CMD OK/ER ...
             if len(response) > 5 and response[0] == "@" and response[4] == " ":
                 payload = response[5:]
-                if payload.startswith(("OK", "ER")):
+                if payload.startswith(("OK", "ER")) and (len(payload) == 2 or payload[2] == " "):
                     return "@" + payload
 
             # Handle legacy responses without '@' prefix (e.g. "OK CLOSE")
@@ -463,6 +539,50 @@ class OppoClient:
         """Set input source by numeric id."""
         return self._parse_ok_response(await self._send_command(f"SIS {source_id}"))
 
+    # --- Toggles / extras ---
+
+    async def dimmer(self) -> str | None:
+        """Cycle front-panel dimmer. Returns 'ON', 'DIM' or 'OFF'."""
+        return self._parse_ok_response(await self._send_command("DIM"))
+
+    async def pure_audio_toggle(self) -> str | None:
+        """Toggle Pure Audio mode. Returns 'ON' or 'OFF'."""
+        return self._parse_ok_response(await self._send_command("PUR"))
+
+    async def info_toggle(self) -> bool:
+        """Show/hide on-screen display."""
+        response = await self._send_command("OSD")
+        return response is not None and "@OK" in response
+
+    async def audio_language_toggle(self) -> bool:
+        """Change audio language or channel."""
+        response = await self._send_command("AUD")
+        return response is not None and "@OK" in response
+
+    async def subtitle_toggle(self) -> bool:
+        """Change subtitle language."""
+        response = await self._send_command("SUB")
+        return response is not None and "@OK" in response
+
+    async def zoom(self) -> str | None:
+        """Cycle zoom / aspect ratio. Returns the current zoom value."""
+        return self._parse_ok_response(await self._send_command("ZOM"))
+
+    # --- Repeat mode ---
+
+    async def set_repeat_mode(self, mode: RepeatMode) -> RepeatMode:
+        """Set repeat mode. Returns the resulting mode reported by the player."""
+        arg = _REPEAT_MODE_TO_SRP_ARG.get(mode)
+        if arg is None:
+            return RepeatMode.UNKNOWN
+        response = self._parse_ok_response(await self._send_command(f"SRP {arg}"))
+        return _parse_repeat_set_response(response)
+
+    async def query_repeat_mode(self) -> RepeatMode:
+        """Query current repeat mode."""
+        response = self._parse_ok_response(await self._send_command("QRP"))
+        return _parse_repeat_query_response(response)
+
     # --- Query commands ---
 
     async def query_power_status(self) -> PowerState:
@@ -597,6 +717,29 @@ class OppoClient:
         """Query subtitle type."""
         return self._parse_ok_response(await self._send_command("QST"))
 
+    async def query_aspect_ratio(self) -> str | None:
+        """Query aspect ratio. Returns lowercase code matching streaming UAR."""
+        response = self._parse_ok_response(await self._send_command("QAR"))
+        return response.lower() if response else response
+
+    async def query_three_d_status(self) -> str | None:
+        """Query 3D status. Returns ``'3d'`` or ``'2d'``."""
+        response = self._parse_ok_response(await self._send_command("Q3D"))
+        if response is None:
+            return None
+        return "3d" if response.upper() == "3D" else "2d"
+
+    async def query_hdmi_resolution(self) -> str | None:
+        """Query the current HDMI output resolution."""
+        return self._parse_ok_response(await self._send_command("QHD"))
+
+    async def query_hdr_status(self) -> str | None:
+        """Query HDR status. Returns ``'hdr10'``, ``'sdr'``, ``'dolby_vision'`` or ``None``."""
+        response = self._parse_ok_response(await self._send_command("QHS"))
+        if response is None:
+            return None
+        return _HDR_RESPONSE_TO_VALUE.get(response.upper())
+
     # --- Verbose mode ---
 
     async def set_verbose_mode(self, mode: int) -> bool:
@@ -621,7 +764,7 @@ class OppoClient:
         self,
         callback: Callable[[tuple[str, str]], None],
         on_disconnect: Callable[[], None] | None = None,
-    ) -> None:
+    ) -> bool:
         """Start receiving streaming updates from the player.
 
         First enables verbose mode 3 (detailed unsolicited status updates
@@ -632,6 +775,10 @@ class OppoClient:
         Args:
             callback: Called with each streaming event tuple.
             on_disconnect: Optional callback called when the connection is lost.
+
+        Returns:
+            True if streaming was started, False if verbose mode could not be
+            enabled (callers should treat this as a disconnect).
         """
         self._disconnect_callback = on_disconnect
         self._stop_streaming_requested = False
@@ -639,7 +786,10 @@ class OppoClient:
         # after reconnect cycles.
         self._streaming_callbacks = [callback]
 
-        await self.set_verbose_mode(3)
+        if not await self.set_verbose_mode(3):
+            _LOGGER.debug("Failed to enable verbose mode, aborting streaming start")
+            await self._teardown_connection()
+            return False
 
         if self._event_queue is None:
             self._event_queue = asyncio.Queue(maxsize=DEFAULT_STREAM_EVENT_QUEUE_SIZE)
@@ -648,8 +798,9 @@ class OppoClient:
             self._dispatcher_task = asyncio.create_task(self._dispatch_streaming_events())
 
         if self._streaming_task and not self._streaming_task.done():
-            return
+            return True
         self._streaming_task = asyncio.create_task(self._streaming_loop())
+        return True
 
     async def stop_streaming(self) -> None:
         """Stop streaming updates."""
@@ -682,13 +833,11 @@ class OppoClient:
 
     async def _dispatch_streaming_events(self) -> None:
         """Drain queued events and invoke callbacks."""
+        queue = self._event_queue
+        if queue is None:
+            return
         try:
             while True:
-                queue = self._event_queue
-                if queue is None:
-                    await asyncio.sleep(0.05)
-                    continue
-
                 event = await queue.get()
                 for cb in self._streaming_callbacks:
                     try:
@@ -705,6 +854,16 @@ class OppoClient:
             while self._connected and self._reader:
                 try:
                     data = await self._reader.readuntil(b"\r")
+                except asyncio.CancelledError:
+                    raise
+                except asyncio.IncompleteReadError, OSError:
+                    _LOGGER.debug("Streaming connection lost")
+                    self._connected = False
+                    break
+
+                # Per-frame parse errors must not tear down the socket — they
+                # affect a single message at most. Log and keep reading.
+                try:
                     frame = data.decode("ascii").strip()
                     if not frame:
                         continue
@@ -716,15 +875,8 @@ class OppoClient:
                     event = self._parse_streaming_frame(frame)
                     if event:
                         self._enqueue_streaming_event(event)
-                except asyncio.CancelledError:
-                    raise
-                except asyncio.IncompleteReadError, OSError:
-                    _LOGGER.debug("Streaming connection lost")
-                    self._connected = False
-                    break
                 except Exception:
-                    _LOGGER.exception("Error in streaming loop")
-                    await asyncio.sleep(1)
+                    _LOGGER.exception("Error parsing streaming frame")
         finally:
             # Complete any pending command response with None
             if self._pending_response and not self._pending_response.done():
@@ -744,7 +896,7 @@ class OppoClient:
                         writer.close()
                         await writer.wait_closed()
                     except Exception:  # noqa: BLE001
-                        _LOGGER.debug("Error closing writer after streaming disconnect")
+                        _LOGGER.debug("Error closing writer after streaming disconnect", exc_info=True)
 
                 # Unexpected reader loop exit should tear down dispatcher + queue
                 # because stop_streaming() is not called on this path.
@@ -775,7 +927,7 @@ class OppoClient:
             return False
 
         # Direct @OK/@ER response (no command code available)
-        if frame.startswith(("@OK", "@ER")):
+        if frame.startswith(("@OK", "@ER")) and (len(frame) == 3 or frame[3] == " "):
             with contextlib.suppress(asyncio.InvalidStateError):
                 pending.set_result(frame)
             return True
@@ -862,6 +1014,12 @@ class OppoClient:
 
         if code == "UVO":
             return "video_resolution", value
+
+        if code == "U3D":
+            return "three_d", "3d" if value == "3D" else "2d"
+
+        if code == "UAR":
+            return "aspect_ratio", value
 
         return "unknown", f"{code} {value}"
 

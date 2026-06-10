@@ -1,0 +1,47 @@
+dimmer:
+  name: Cycle dimmer
+  description: Cycle the front-panel display brightness (On / Dim / Off).
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+pure_audio_toggle:
+  name: Toggle Pure Audio
+  description: Toggle Pure Audio mode (disables video output).
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+info_toggle:
+  name: Toggle on-screen info
+  description: Show or hide the on-screen display.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+audio_language_toggle:
+  name: Cycle audio language
+  description: Cycle to the next audio language or channel.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+subtitle_toggle:
+  name: Cycle subtitle
+  description: Cycle to the next subtitle language.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+zoom:
+  name: Cycle zoom
+  description: Cycle zoom / aspect-ratio mode.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player

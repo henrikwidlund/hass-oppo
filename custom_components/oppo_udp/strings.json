@@ -18,5 +18,95 @@
     "abort": {
       "already_configured": "This player is already configured."
     }
+  },
+  "entity": {
+    "media_player": {
+      "oppo_udp": {
+        "state_attributes": {
+          "disc_type": {
+            "name": "Disc type",
+            "state": {
+              "bd-mv": "Blu-Ray Movie",
+              "dvd-video": "DVD Video",
+              "dvd-audio": "DVD Audio",
+              "sacd": "SACD",
+              "cdda": "CD Audio",
+              "data-disc": "Data Disc",
+              "uhbd": "Ultra HD Blu-Ray",
+              "no-disc": "No Disc",
+              "unknown-disc": "Unknown Disc",
+              "unknown": "Unknown"
+            }
+          },
+          "aspect_ratio": {
+            "name": "Aspect ratio",
+            "state": {
+              "16ww": "16:9 Wide",
+              "16aw": "16:9 Wide Auto - Wide",
+              "16a4": "16:9 Wide Auto - 4:3",
+              "21m0": "21:9 Movable - Full Screen",
+              "21m1": "21:9 Movable - 16:9 or 4:3",
+              "21m2": "21:9 Movable - 21:9",
+              "21f0": "21:9 Fixed - Full Screen",
+              "21f1": "21:9 Fixed - 16:9 or 4:3",
+              "21f2": "21:9 Fixed - 21:9",
+              "21c0": "21:9 Cropped - Full Screen",
+              "21c1": "21:9 Cropped - 16:9 or 4:3",
+              "21c2": "21:9 Cropped - 21:9"
+            }
+          },
+          "three_d": {
+            "name": "3D",
+            "state": {
+              "2d": "2D",
+              "3d": "3D"
+            }
+          },
+          "hdr_status": {
+            "name": "HDR",
+            "state": {
+              "hdr10": "HDR10",
+              "sdr": "SDR",
+              "dolby_vision": "Dolby Vision"
+            }
+          },
+          "audio_type": {
+            "name": "Audio type"
+          },
+          "subtitle_type": {
+            "name": "Subtitle"
+          },
+          "video_resolution": {
+            "name": "Video resolution"
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "dimmer": {
+      "name": "Cycle dimmer",
+      "description": "Cycle the front-panel display brightness (On / Dim / Off)."
+    },
+    "pure_audio_toggle": {
+      "name": "Toggle Pure Audio",
+      "description": "Toggle Pure Audio mode (disables video output)."
+    },
+    "info_toggle": {
+      "name": "Toggle on-screen info",
+      "description": "Show or hide the on-screen display."
+    },
+    "audio_language_toggle": {
+      "name": "Cycle audio language",
+      "description": "Cycle to the next audio language or channel."
+    },
+    "subtitle_toggle": {
+      "name": "Cycle subtitle",
+      "description": "Cycle to the next subtitle language."
+    },
+    "zoom": {
+      "name": "Cycle zoom",
+      "description": "Cycle zoom / aspect-ratio mode."
+    }
   }
 }
