@@ -66,8 +66,11 @@ PLAYBACK_TO_STATE = {
 }
 
 
+_SERVICES_REGISTERED_KEY = f"{DOMAIN}_services_registered"
+
+
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001
+    hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -81,9 +84,13 @@ async def async_setup_entry(
     entity = OppoUDPMediaPlayer(client, name, model, config_entry.entry_id)
     async_add_entities([entity])
 
-    platform = entity_platform.async_get_current_platform()
-    for service_name, method in _ENTITY_SERVICES:
-        platform.async_register_entity_service(service_name, None, method)
+    # Entity services are global to the integration. Register them only once
+    # so a reload or a second config entry does not raise.
+    if not hass.data.get(_SERVICES_REGISTERED_KEY):
+        platform = entity_platform.async_get_current_platform()
+        for service_name, method in _ENTITY_SERVICES:
+            platform.async_register_entity_service(service_name, None, method)
+        hass.data[_SERVICES_REGISTERED_KEY] = True
 
 
 _ENTITY_SERVICES: tuple[tuple[str, str], ...] = (
@@ -508,7 +515,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if self._rebuild_in_progress:
             return
         self._rebuild_in_progress = True
-        self.hass.async_create_task(self._rebuild_snapshot(), "oppo_udp_rebuild_snapshot")
+        self.hass.async_create_task(self._rebuild_snapshot(), name="oppo_udp_rebuild_snapshot")
 
     def _handle_time_code_event(self, value: str) -> None:
         """Handle a streaming time code event, rebuild on title change."""
