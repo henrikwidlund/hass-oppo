@@ -59,10 +59,8 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
 
             # Test the connection
             client = OppoClient(normalized_host, port=port)
-            connected = False
             try:
-                connected = await client.connect()
-                if connected:
+                if await client.connect():
                     power_state = await client.query_power_status()
                     if power_state != PowerState.UNKNOWN:
                         return self.async_create_entry(
@@ -74,8 +72,9 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception during connection test")
                 errors["base"] = "cannot_connect"
             finally:
-                if connected:
-                    await client.disconnect()
+                # Always tear down — connect() may have left a partial transport
+                # open (e.g. if setsockopt failed after the writer was created).
+                await client.disconnect()
 
         return self.async_show_form(
             step_id="user",

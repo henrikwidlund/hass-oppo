@@ -183,7 +183,9 @@ class OppoClient:
                 self._host,
                 self._port,
             )
-            self._connected = False
+            # If the writer was created before the failure (e.g. setsockopt
+            # raised), close it so we don't leak a half-open transport.
+            await self._teardown_connection()
             return False
         else:
             return True

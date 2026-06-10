@@ -437,7 +437,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if event_type == "power":
             if event[1] == "on":
                 self._power_state = PowerState.ON
-                # Player turned on — rebuild state
+                # Write immediately so the UI reflects power state without
+                # waiting for the rebuild snapshot to complete.
+                self.async_write_ha_state()
                 self._schedule_rebuild_snapshot()
                 return
             self._power_state = PowerState.OFF
@@ -453,6 +455,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 PlaybackStatus.PAUSE,
             )
             if is_active and not was_active:
+                # Push play/pause state immediately; rebuild fills in metadata.
+                self.async_write_ha_state()
                 self._schedule_rebuild_snapshot()
                 return
             if not is_active:
