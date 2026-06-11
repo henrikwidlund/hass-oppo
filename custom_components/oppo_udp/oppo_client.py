@@ -745,51 +745,40 @@ class OppoClient:
     async def set_verbose_mode(self, mode: int) -> bool:
         """Set verbose mode (0=off, 2=unsolicited updates, 3=detailed).
 
-        Skips sending the SVM command if verbose mode is already set to the requested mode.
+        Caller is responsible for only invoking this while the player is on:
+        ``SVM`` produces no response from a powered-off player, and ``QVM``
+        cannot be trusted to report the current mode either (it returns 0 even
+        when the player has retained 3 across the power cycle).
         """
-        verbose_mode_response = self._parse_ok_response(await self._send_command("QVM"))
-        if verbose_mode_response is not None:
-            try:
-                if int(verbose_mode_response) == mode:
-                    return True
-            except ValueError:
-                pass
-
         response = self._parse_ok_response(await self._send_command(f"SVM {mode}"))
         return response is not None
 
     # --- Streaming updates ---
 
-    async def start_streaming(
+    def start_streaming(
         self,
         callback: Callable[[tuple[str, str]], None],
         on_disconnect: Callable[[], None] | None = None,
-    ) -> bool:
-        """Start receiving streaming updates from the player.
+    ) -> None:
+        """Start the background reader and dispatcher tasks.
 
-        First enables verbose mode 3 (detailed unsolicited status updates
-        including playback progress), then starts background reader/dispatcher
-        tasks. Reader parses frames and enqueues events; dispatcher calls
-        callbacks. This keeps socket reads decoupled from callback speed.
+        Reader parses frames and enqueues events; dispatcher calls callbacks.
+        This keeps socket reads decoupled from callback speed.
+
+        The caller is responsible for enabling verbose mode (``SVM 3``)
+        separately when the player is known to be on — sending it to a powered
+        off player gets no response and the player's verbose mode query is
+        unreliable across power cycles.
 
         Args:
             callback: Called with each streaming event tuple.
             on_disconnect: Optional callback called when the connection is lost.
-
-        Returns:
-            True if streaming was started, False if verbose mode could not be
-            enabled (callers should treat this as a disconnect).
         """
         self._disconnect_callback = on_disconnect
         self._stop_streaming_requested = False
         # Keep only the active subscriber callback to avoid duplicated events
         # after reconnect cycles.
         self._streaming_callbacks = [callback]
-
-        if not await self.set_verbose_mode(3):
-            _LOGGER.debug("Failed to enable verbose mode, aborting streaming start")
-            await self._teardown_connection()
-            return False
 
         if self._event_queue is None:
             self._event_queue = asyncio.Queue(maxsize=DEFAULT_STREAM_EVENT_QUEUE_SIZE)
@@ -798,9 +787,8 @@ class OppoClient:
             self._dispatcher_task = asyncio.create_task(self._dispatch_streaming_events())
 
         if self._streaming_task and not self._streaming_task.done():
-            return True
+            return
         self._streaming_task = asyncio.create_task(self._streaming_loop())
-        return True
 
     async def stop_streaming(self) -> None:
         """Stop streaming updates."""
