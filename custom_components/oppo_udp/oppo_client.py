@@ -755,7 +755,7 @@ class OppoClient:
 
     # --- Streaming updates ---
 
-    async def start_streaming(
+    def start_streaming(
         self,
         callback: Callable[[tuple[str, str]], None],
         on_disconnect: Callable[[], None] | None = None,

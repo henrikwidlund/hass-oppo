@@ -345,7 +345,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         await self._fetch_initial_state()
         # Start the reader / dispatcher so streaming events can be received
         # even before we send the SVM command.
-        await self._client.start_streaming(
+        self._client.start_streaming(
             self._handle_streaming_event,
             on_disconnect=self._handle_disconnect,
         )
