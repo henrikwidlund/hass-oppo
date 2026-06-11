@@ -356,12 +356,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # session, the player retains it across power cycles and will emit
         # events again.
         #
-        # If the initial snapshot build failed mid-way (`_fetch_initial_state`
-        # swallows errors), `power_state` is still UNKNOWN even though the
-        # player may actually be on. Re-query once so we don't skip the
-        # verbose-mode bootstrap on a transient error — otherwise no events
-        # would ever arrive to recover.
-        if self._snapshot.power_state == PowerState.UNKNOWN:
+        # `_fetch_initial_state` swallows errors without resetting the
+        # snapshot, so a transient failure can leave `power_state` at any
+        # stale value (UNKNOWN on first connect, OFF/etc. on later
+        # reconnects). Whenever we cannot confirm ON, re-query once so we
+        # don't skip the verbose-mode bootstrap and end up with no streaming
+        # events to recover.
+        if self._snapshot.power_state != PowerState.ON:
             try:
                 fresh_power = await self._client.query_power_status()
             except Exception:  # noqa: BLE001
