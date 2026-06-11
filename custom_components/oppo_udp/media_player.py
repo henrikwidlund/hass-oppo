@@ -343,16 +343,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         # Query initial state
         await self._fetch_initial_state()
-        # Start streaming with disconnect handler
-        if not await self._client.start_streaming(
+        # Start the reader / dispatcher so streaming events can be received
+        # even before we send the SVM command.
+        await self._client.start_streaming(
             self._handle_streaming_event,
             on_disconnect=self._handle_disconnect,
-        ):
-            # Verbose mode could not be enabled — treat as a disconnect so
-            # the UI is updated immediately and a reconnect is scheduled.
-            self._handle_disconnect()
-            return
+        )
         self._streaming_active = True
+        # Verbose mode only makes sense to send while the player is on. If
+        # it's off now, the UPW=on streaming event (or a future TURN_ON) will
+        # trigger the SVM 3 command — provided verbose mode was set on a prior
+        # session, the player retains it across power cycles and will emit
+        # events again.
+        if self._snapshot.power_state == PowerState.ON:
+            await self._ensure_verbose_mode()
 
     async def _fetch_initial_state(self) -> None:
         """Fetch a full snapshot from the player after connecting."""
@@ -503,6 +507,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 # the UI reflects ON without waiting for the rebuild to land.
                 self._snapshot = _Snapshot(power_state=PowerState.ON)
                 self.async_write_ha_state()
+                # The player only reliably accepts SVM while on. Catch the case where
+                # it was powered up externally and verbose mode might have been reverted.
+                self.hass.async_create_task(
+                    self._ensure_verbose_mode(), name="oppo_udp_ensure_verbose_mode"
+                )
                 self._schedule_rebuild_snapshot()
                 return
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
@@ -580,6 +589,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             PlaybackStatus.PLAY,
             PlaybackStatus.PAUSE,
         )
+
+    async def _ensure_verbose_mode(self) -> None:
+        """Send ``SVM 3`` to enable detailed streaming updates.
+
+        Only safe to call while the player is on — the player ignores ``SVM``
+        when powered off and ``QVM`` cannot be relied on to report the
+        retained mode either. Failures are logged at debug level and
+        otherwise swallowed: the next power-on / turn-on event will retry.
+        """
+        try:
+            if not await self._client.set_verbose_mode(3):
+                _LOGGER.debug("Failed to enable verbose mode")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Error enabling verbose mode", exc_info=True)
 
     async def _refresh_hdr(self) -> None:
         """Query HDR status and update the snapshot in place."""
@@ -785,8 +808,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @override
     async def async_turn_on(self) -> None:
-        """Turn the player on."""
-        await self._client.power_on()
+        """Turn the player on and re-enable verbose streaming updates."""
+        if not await self._client.power_on():
+            return
+        # PON ACK means the player is ready to accept commands again, so this
+        # is the right moment to (re)enable verbose mode. Without it a player
+        # that fell back to verbose=0 would never emit streaming events.
+        await self._ensure_verbose_mode()
 
     @override
     async def async_turn_off(self) -> None:
