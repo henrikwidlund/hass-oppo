@@ -355,6 +355,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # trigger the SVM 3 command — provided verbose mode was set on a prior
         # session, the player retains it across power cycles and will emit
         # events again.
+        #
+        # If the initial snapshot build failed mid-way (`_fetch_initial_state`
+        # swallows errors), `power_state` is still UNKNOWN even though the
+        # player may actually be on. Re-query once so we don't skip the
+        # verbose-mode bootstrap on a transient error — otherwise no events
+        # would ever arrive to recover.
+        if self._snapshot.power_state == PowerState.UNKNOWN:
+            try:
+                fresh_power = await self._client.query_power_status()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Power status re-query failed", exc_info=True)
+            else:
+                self._snapshot.power_state = fresh_power
+                self.async_write_ha_state()
         if self._snapshot.power_state == PowerState.ON:
             await self._ensure_verbose_mode()
 
