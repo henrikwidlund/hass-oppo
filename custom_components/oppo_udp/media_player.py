@@ -509,9 +509,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self.async_write_ha_state()
                 # The player only reliably accepts SVM while on. Catch the case where
                 # it was powered up externally and verbose mode might have been reverted.
-                self.hass.async_create_task(
-                    self._ensure_verbose_mode(), name="oppo_udp_ensure_verbose_mode"
-                )
+                self.hass.async_create_task(self._ensure_verbose_mode(), name="oppo_udp_ensure_verbose_mode")
                 self._schedule_rebuild_snapshot()
                 return
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
