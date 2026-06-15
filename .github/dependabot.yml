@@ -6,6 +6,8 @@ updates:
       interval: "daily"
     cooldown:
       default-days: 14
+    allow:
+      - dependency-type: "direct"
 
   - package-ecosystem: "github-actions"
     directory: "/"
