@@ -7,32 +7,40 @@ A custom Home Assistant integration for controlling Oppo UDP-203 and UDP-205 4K 
 - **Power control**: Turn on/off
 - **Playback control**: Play, pause, stop, next/previous track
 - **Volume control**: Volume up/down, set level, mute
-- **Input source selection**: Switch between BD Player, HDMI In, ARC, Optical, etc.
+- **Input source selection**: Switch between model-specific inputs (see [Supported Input Sources](#supported-input-sources))
+- **Repeat and shuffle**: Set repeat mode (off/one/all) and toggle shuffle
 - **Media info**: Track name, album, artist, playback position/duration
+- **Extended state attributes**: Disc type, audio type, subtitle type, aspect ratio, 3D status, HDR status, video resolution
 - **Real-time updates**: Uses verbose mode 3 for detailed streaming status including playback progress
-- **Disc type detection**: Reports what type of disc is loaded (UHD BD, BD, DVD, CD, etc.)
-- **Audio type reporting**: Shows the current audio codec in use
+- **Custom services**: Dimmer, Pure Audio toggle, on-screen info toggle, audio language cycle, subtitle cycle, zoom cycle (see [Services](#services))
 - **Automatic reconnection**: Reconnects automatically if the connection is lost
 
 ## Installation
 
 ### HACS (Recommended)
 
-1. Add this repository as a custom repository in HACS
-2. Install the "Oppo UDP-20X" integration
-3. Restart Home Assistant
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=henrikwidlund&repository=hass-oppo&category=Integration)
 
-### Manual
+1. Install [HACS](https://hacs.xyz/) if you don't already have it.
+2. Home Assistant → HACS → Integrations.
+3. Search “Oppo UDP-20X” → Install.
+4. Restart Home Assistant.
 
-1. Copy the `custom_components/oppo_udp` folder to your Home Assistant `config/custom_components/` directory
-2. Restart Home Assistant
+### Manual Installation
+1. Clone or download this repository.
+2. Copy `custom_components/oppo_udp` into your HA `custom_components/` directory.
+3. Restart HA.
+
+Manual installs won’t auto-notify updates—watch the repo if you go this route.
 
 ## Configuration
 
 1. Go to **Settings** → **Devices & Services** → **Add Integration**
 2. Search for "Oppo UDP-20X"
-3. Enter the IP address of your player (port is optional, default is 23)
-4. Select your model (UDP-203 or UDP-205)
+3. Enter the IP address of your player
+4. Enter the TCP port (default is 23)
+5. Enter a name for the entity (default is "Oppo UDP-203")
+6. Select your model (UDP-203 or UDP-205)
 
 ## Requirements
 
@@ -40,6 +48,8 @@ A custom Home Assistant integration for controlling Oppo UDP-203 and UDP-205 4K 
 - Player must be connected to your network
 - The player communicates on TCP port 23
 - If you want to power the player on via the integration, enable network in standby in the player's settings
+- Home Assistant `2026.6.3` or newer
+- Python `3.14.2` or newer (matches Home Assistant's bundled Python)
 
 ## Protocol
 
@@ -60,6 +70,27 @@ The integration enables verbose mode 3 (detailed unsolicited status updates) so 
 - Optical
 - Coaxial
 - USB Audio
+
+## Services
+
+The integration exposes the following services. All take an entity target.
+
+| Service                          | Description                                               |
+|----------------------------------|-----------------------------------------------------------|
+| `oppo_udp.dimmer`                | Cycle the front-panel display brightness (On / Dim / Off) |
+| `oppo_udp.pure_audio_toggle`     | Toggle Pure Audio mode (disables video output)            |
+| `oppo_udp.info_toggle`           | Show or hide the on-screen display                        |
+| `oppo_udp.audio_language_toggle` | Cycle to the next audio language or channel               |
+| `oppo_udp.subtitle_toggle`       | Cycle to the next subtitle language                       |
+| `oppo_udp.zoom`                  | Cycle zoom / aspect-ratio mode                            |
+
+Example:
+
+```yaml
+service: oppo_udp.pure_audio_toggle
+target:
+  entity_id: media_player.oppo_udp_203
+```
 
 ## Known Issues
 
