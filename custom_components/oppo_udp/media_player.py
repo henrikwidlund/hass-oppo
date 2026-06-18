@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from dataclasses import dataclass
 import logging
@@ -25,6 +26,10 @@ from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, INPUT_SOURCES_UDP203, INPUT
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
 
 _LOGGER = logging.getLogger(__name__)
+
+# Player ACKs PON before it can reliably accept SVM. Wait this long after
+# a power-on transition before sending the verbose-mode command.
+_VERBOSE_MODE_POWER_ON_DELAY = 5.0
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -163,6 +168,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._rebuild_in_progress = False
         self._rebuild_pending = False
+        # Pending verbose-mode task, kept so unload / a fresh power-on
+        # transition can cancel the previous delayed SVM send.
+        self._verbose_mode_task: asyncio.Task[None] | None = None
 
         # Input sources based on model
         if model == MODEL_UDP205:
@@ -332,6 +340,14 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
         self._reconnect_cancel()
+        # Snapshot the task before clearing so we can await its teardown
+        # below — `_cancel_verbose_mode_task` issues the cancel and drops
+        # the reference; the done-callback drains any exception.
+        pending_verbose = self._verbose_mode_task
+        self._cancel_verbose_mode_task()
+        if pending_verbose is not None and not pending_verbose.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_verbose
         await self._client.stop_streaming()
         await self._client.disconnect()
 
@@ -371,7 +387,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._snapshot.power_state = fresh_power
                 self.async_write_ha_state()
         if self._snapshot.power_state == PowerState.ON:
-            await self._ensure_verbose_mode()
+            self._schedule_ensure_verbose_mode()
+        else:
+            # Cannot confirm ON — make sure no leftover task from an earlier
+            # cycle keeps sleeping toward a now-pointless SVM send.
+            self._cancel_verbose_mode_task()
 
     async def _fetch_initial_state(self) -> None:
         """Fetch a full snapshot from the player after connecting."""
@@ -504,6 +524,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _handle_disconnect(self) -> None:
         """Handle connection loss — mark unavailable and schedule reconnect."""
         self._streaming_active = False
+        # Disconnect invalidates any in-flight delayed SVM send — drop it so
+        # it can't fire against a freshly reconnected (and possibly off)
+        # player.
+        self._cancel_verbose_mode_task()
         # Drop the whole snapshot so HA does not show stale media data while
         # we are disconnected; reconnect rebuilds from scratch.
         self._snapshot = _Snapshot()
@@ -524,9 +548,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self.async_write_ha_state()
                 # The player only reliably accepts SVM while on. Catch the case where
                 # it was powered up externally and verbose mode might have been reverted.
-                self.hass.async_create_task(self._ensure_verbose_mode(), name="oppo_udp_ensure_verbose_mode")
+                self._schedule_ensure_verbose_mode()
                 self._schedule_rebuild_snapshot()
                 return
+            # Power-off transition — drop any in-flight delayed SVM send so it
+            # doesn't fire against a player that's no longer on.
+            self._cancel_verbose_mode_task()
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
 
         elif event_type == "playback":
@@ -588,7 +615,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             # Player can renegotiate HDMI mid-playback (HDR↔SDR, Dolby Vision
             # fallback). Re-query HDR while a UHD disc is actively playing.
             if self._is_uhd_active_playback():
-                self.hass.async_create_task(self._refresh_hdr(), name="oppo_udp_refresh_hdr")
+                self.hass.async_create_task(self._refresh_hdr(), name=f"oppo_udp_refresh_hdr[{self._client.host}]")
 
         elif event_type == "time_code":
             self._handle_time_code_event(event[1])
@@ -603,17 +630,66 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             PlaybackStatus.PAUSE,
         )
 
+    def _schedule_ensure_verbose_mode(self) -> None:
+        """Schedule the delayed SVM send, replacing any pending one.
+
+        Multiple power-on signals can arrive back-to-back (initial connect,
+        UPW=on streaming event, an explicit ``turn_on``). Cancel any
+        in-flight verbose-mode task before starting a new one so we never
+        end up with two delayed SVM sends racing.
+        """
+        self._cancel_verbose_mode_task()
+        task = self.hass.async_create_task(
+            self._ensure_verbose_mode(),
+            name=f"oppo_udp_ensure_verbose_mode[{self._client.host}]",
+        )
+        # Consume the task result so a cancellation (or any stray exception
+        # that escaped the body) does not surface as
+        # "Task exception was never retrieved" in the event loop logs.
+        task.add_done_callback(self._handle_verbose_mode_task_done)
+        self._verbose_mode_task = task
+
+    def _cancel_verbose_mode_task(self) -> None:
+        """Cancel any pending verbose-mode task.
+
+        The task drains itself via ``_handle_verbose_mode_task_done`` once
+        cancellation lands, so callers in sync contexts don't need to await
+        it. ``async_will_remove_from_hass`` awaits it explicitly to make
+        teardown deterministic.
+        """
+        task = self._verbose_mode_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._verbose_mode_task = None
+
+    def _handle_verbose_mode_task_done(self, task: asyncio.Task[None]) -> None:
+        """Drain the verbose-mode task's result to keep the loop quiet."""
+        with contextlib.suppress(asyncio.CancelledError):
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                _LOGGER.debug("Verbose-mode task raised for host %s", self._client.host, exc_info=exc)
+
     async def _ensure_verbose_mode(self) -> None:
         """Send ``SVM 3`` to enable detailed streaming updates.
 
         Only safe to call while the player is on — the player ignores ``SVM``
         when powered off and ``QVM`` cannot be relied on to report the
-        retained mode either. Failures are logged at debug level and
-        otherwise swallowed: the next power-on / turn-on event will retry.
+        retained mode either. Sending the command immediately after a PON
+        ACK is too aggressive: the player needs a moment after power-on
+        before it will reliably honor SVM 3, so we wait first. Failures are
+        logged at debug level and otherwise swallowed: the next power-on /
+        turn-on event will retry.
         """
         try:
-            if not await self._client.set_verbose_mode(3):
+            await asyncio.sleep(_VERBOSE_MODE_POWER_ON_DELAY)
+            # Recheck after the wait — if the player went off again during
+            # the delay, skip the SVM send.
+            if self._snapshot.power_state == PowerState.ON and not await self._client.set_verbose_mode(3):
                 _LOGGER.debug("Failed to enable verbose mode")
+        except asyncio.CancelledError:
+            raise
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Error enabling verbose mode", exc_info=True)
 
@@ -649,7 +725,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._rebuild_pending = True
             return
         self._rebuild_in_progress = True
-        self.hass.async_create_task(self._rebuild_snapshot(), name="oppo_udp_rebuild_snapshot")
+        self.hass.async_create_task(self._rebuild_snapshot(), name=f"oppo_udp_rebuild_snapshot[{self._client.host}]")
 
     def _handle_time_code_event(self, value: str) -> None:
         """Handle a streaming time code event, rebuild on title change."""
@@ -824,15 +900,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Turn the player on and re-enable verbose streaming updates."""
         if not await self._client.power_on():
             return
-        # PON ACK means the player is ready to accept commands again, so this
-        # is the right moment to (re)enable verbose mode. Without it a player
-        # that fell back to verbose=0 would never emit streaming events.
-        await self._ensure_verbose_mode()
+        # PON ACK means the player accepted the power-on, but it needs a
+        # short grace period before it reliably honors SVM 3. Fire and forget
+        # so the service call returns immediately; `_ensure_verbose_mode`
+        # waits internally before sending the command.
+        self._schedule_ensure_verbose_mode()
 
     @override
     async def async_turn_off(self) -> None:
         """Turn the player off."""
         if await self._client.power_off():
+            # Drop any in-flight delayed SVM send — the player is going off
+            # and the deferred command would otherwise fire against it.
+            self._cancel_verbose_mode_task()
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
             self.async_write_ha_state()
 
