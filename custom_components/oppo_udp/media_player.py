@@ -29,7 +29,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Player ACKs PON before it can reliably accept SVM. Wait this long after
 # a power-on transition before sending the verbose-mode command.
-_VERBOSE_MODE_POWER_ON_DELAY = 5.0
+_VERBOSE_MODE_POWER_ON_DELAY = 1.0
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
