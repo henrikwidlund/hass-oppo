@@ -63,7 +63,6 @@ class _Snapshot:
     video_resolution: str | None = None
     repeat: HARepeatMode = HARepeatMode.OFF
     shuffle: bool = False
-    last_title: int | None = None
 
 
 _OPPO_TO_HA_REPEAT: dict[RepeatMode, HARepeatMode] = {
@@ -168,6 +167,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._rebuild_in_progress = False
         self._rebuild_pending = False
+        # Title/chapter from the most recent @UTC frame, for detecting the
+        # content change that warrants a metadata rebuild. Kept off ``_snapshot``
+        # so a rebuild's atomic swap can't reset it — that would make the next
+        # frame look like a change and trigger an endless rebuild loop. Reset
+        # only on playback invalidation.
+        self._last_progress_title: int | None = None
+        self._last_progress_chapter: int | None = None
         # Pending verbose-mode task, kept so unload / a fresh power-on
         # transition can cancel the previous delayed SVM send.
         self._verbose_mode_task: asyncio.Task[None] | None = None
@@ -529,8 +535,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # player.
         self._cancel_verbose_mode_task()
         # Drop the whole snapshot so HA does not show stale media data while
-        # we are disconnected; reconnect rebuilds from scratch.
+        # we are disconnected, and re-arm the @UTC progress cursor. Reconnect
+        # rebuilds via `_fetch_initial_state`, but that swallows errors — if it
+        # fails, the snapshot stays empty and a stale cursor would let the first
+        # post-reconnect time-code frame look "unchanged" and skip the rebuild,
+        # leaving metadata empty until some other invalidating event.
         self._snapshot = _Snapshot()
+        self._reset_progress_cursor()
         self.async_write_ha_state()
         self._schedule_reconnect()
 
@@ -545,6 +556,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 # cycle is gone while the rebuild runs. Write immediately so
                 # the UI reflects ON without waiting for the rebuild to land.
                 self._snapshot = _Snapshot(power_state=PowerState.ON)
+                self._reset_progress_cursor()
                 self.async_write_ha_state()
                 # The player only reliably accepts SVM while on. Catch the case where
                 # it was powered up externally and verbose mode might have been reverted.
@@ -555,6 +567,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             # doesn't fire against a player that's no longer on.
             self._cancel_verbose_mode_task()
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
+            self._reset_progress_cursor()
 
         elif event_type == "playback":
             prev_status = self._snapshot.playback_status
@@ -728,17 +741,30 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.hass.async_create_task(self._rebuild_snapshot(), name=f"oppo_udp_rebuild_snapshot[{self._client.host}]")
 
     def _handle_time_code_event(self, value: str) -> None:
-        """Handle a streaming time code event, rebuild on title change."""
-        parts = value.split(" ")
+        """Handle a streaming time code event: ``<title> <chapter> <type> HH:MM:SS``.
+
+        Applies the position from the stream, triggering a full metadata rebuild
+        when the title (or, on audio discs, the track) changes.
+        """
+        parts = value.split()
         if len(parts) < 4:
             return
 
-        with contextlib.suppress(ValueError):
-            title = int(parts[0])
-
-            # Title changed — rebuild snapshot with fresh metadata.
-            if title != self._snapshot.last_title:
-                self._snapshot.last_title = title
+        # Title is the content-change key; the chapter only matters on audio
+        # discs (where it is the track number — the title stays 001). Parse them
+        # independently so a malformed chapter can't suppress title-change
+        # detection. Both are digit strings per the protocol.
+        title = int(parts[0]) if parts[0].isdigit() else None
+        chapter = int(parts[1]) if parts[1].isdigit() else None
+        if title is not None:
+            # Video chapters increment routinely and their metadata has its own
+            # events, so only a title change (or an audio track change) rebuilds.
+            is_audio = self._snapshot.disc_type in _AUDIO_DISC_TYPES
+            chapter_changed = is_audio and chapter is not None and chapter != self._last_progress_chapter
+            if title != self._last_progress_title or chapter_changed:
+                self._last_progress_title = title
+                if chapter is not None:
+                    self._last_progress_chapter = chapter
                 # Apply the current sample immediately to avoid a visible
                 # position freeze/jump while waiting for the rebuild.
                 self._parse_time_code_event(value)
@@ -746,9 +772,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._schedule_rebuild_snapshot()
                 return
 
-        # Same title — just update position
-        self._parse_time_code_event(value)
-        self.async_write_ha_state()
+        # No content change — apply the frame, writing state only if the
+        # position or duration moved.
+        if self._parse_time_code_event(value):
+            self.async_write_ha_state()
 
     def _clear_playback_metadata(self) -> None:
         """Clear fields tied to the currently-playing content.
@@ -769,10 +796,17 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.media_artist = None
         self._snapshot.audio_type = None
         self._snapshot.subtitle_type = None
-        self._snapshot.last_title = None
         self._snapshot.repeat = HARepeatMode.OFF
         self._snapshot.shuffle = False
         self._snapshot.hdr_status = None
+        # Playback domain invalidated — re-arm the @UTC change detector so the
+        # next time-code event rebuilds against fresh metadata.
+        self._reset_progress_cursor()
+
+    def _reset_progress_cursor(self) -> None:
+        """Re-arm the streaming @UTC title/chapter change detector."""
+        self._last_progress_title = None
+        self._last_progress_chapter = None
 
     def _clear_video_state(self) -> None:
         """Clear video-only attributes (aspect ratio, 3D, HDR, HDMI resolution)."""
@@ -853,28 +887,40 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         }
         return source_response_map.get(raw, raw)
 
-    def _parse_time_code_event(self, value: str) -> None:
-        """Parse a streaming time code event: 'TT CC T HH:MM:SS'."""
-        parts = value.split(" ")
-        if len(parts) < 4:
-            return
-        time_type = parts[2]
-        time_str = parts[3]
-        seconds = self._parse_time_str(time_str)
-        if seconds is None:
-            return
+    def _parse_time_code_event(self, value: str) -> bool:
+        """Parse a streaming time code event: '<title> <chapter> <type> HH:MM:SS'.
 
-        if time_type == "E":  # Total elapsed
-            self._set_media_position(self._snapshot, seconds)
-        elif time_type == "R":  # Total remaining
-            if self._snapshot.media_position is not None:
-                self._snapshot.media_duration = self._snapshot.media_position + seconds
-            else:
-                self._snapshot.media_duration = seconds
-        elif time_type == "T":  # Title/track elapsed
-            self._set_media_position(self._snapshot, seconds)
-        elif time_type == "X" and self._snapshot.media_position is not None:  # Title remaining
-            self._snapshot.media_duration = self._snapshot.media_position + seconds
+        Returns True only if the media position or duration changed, so the
+        caller can skip a redundant state write for an unchanged value.
+        """
+        parts = value.split()
+        if len(parts) < 4:
+            return False
+        time_type = parts[2]
+        seconds = self._parse_time_str(parts[3])
+        if seconds is None:
+            return False
+
+        snapshot = self._snapshot
+        # Elapsed time (E total / T title / C chapter-track) -> media position.
+        if time_type in ("E", "T", "C"):
+            if snapshot.media_position == seconds:
+                return False
+            self._set_media_position(snapshot, seconds)
+            return True
+        # Remaining time -> total duration (elapsed + remaining). Title/chapter
+        # remaining (X/K) is only a valid duration once the elapsed position is
+        # known; total remaining (R) also stands alone as a fallback before then.
+        if time_type == "R":
+            duration = snapshot.media_position + seconds if snapshot.media_position is not None else seconds
+        elif time_type in ("X", "K") and snapshot.media_position is not None:
+            duration = snapshot.media_position + seconds
+        else:
+            return False
+        if snapshot.media_duration == duration:
+            return False
+        snapshot.media_duration = duration
+        return True
 
     @staticmethod
     def _set_media_position(snapshot: _Snapshot, seconds: int) -> None:
