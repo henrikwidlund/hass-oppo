@@ -167,12 +167,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._unsub_reconnect: CALLBACK_TYPE | None = None
         self._rebuild_in_progress = False
         self._rebuild_pending = False
-        # Last title/chapter seen on the @UTC stream, used to detect a content
-        # change that needs a metadata rebuild: movies advance the title number,
-        # audio discs keep title 001 and advance the chapter (= track number).
-        # Kept outside ``_snapshot`` so a rebuild's snapshot swap doesn't clear
-        # it and make the next frame look like a change, triggering another
-        # rebuild indefinitely. Reset only on playback invalidation.
+        # Title/chapter from the most recent @UTC frame, for detecting the
+        # content change that warrants a metadata rebuild. Kept off ``_snapshot``
+        # so a rebuild's atomic swap can't reset it — that would make the next
+        # frame look like a change and trigger an endless rebuild loop. Reset
+        # only on playback invalidation.
         self._last_progress_title: int | None = None
         self._last_progress_chapter: int | None = None
         # Pending verbose-mode task, kept so unload / a fresh power-on
@@ -536,11 +535,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # player.
         self._cancel_verbose_mode_task()
         # Drop the whole snapshot so HA does not show stale media data while
-        # we are disconnected; reconnect rebuilds from scratch via
-        # `_fetch_initial_state` before streaming resumes, so the @UTC progress
-        # cursor is intentionally left as-is — a stale value at most suppresses
-        # one redundant rebuild, never the metadata repopulation.
+        # we are disconnected, and re-arm the @UTC progress cursor. Reconnect
+        # rebuilds via `_fetch_initial_state`, but that swallows errors — if it
+        # fails, the snapshot stays empty and a stale cursor would let the first
+        # post-reconnect time-code frame look "unchanged" and skip the rebuild,
+        # leaving metadata empty until some other invalidating event.
         self._snapshot = _Snapshot()
+        self._reset_progress_cursor()
         self.async_write_ha_state()
         self._schedule_reconnect()
 
@@ -742,8 +743,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _handle_time_code_event(self, value: str) -> None:
         """Handle a streaming time code event: ``TT CC T HH:MM:SS``.
 
-        A title or chapter change invalidates track metadata, so it triggers a
-        full rebuild; otherwise the position is applied straight from the stream.
+        Applies the position from the stream, triggering a full metadata rebuild
+        when the title (or, on audio discs, the track) changes.
         """
         parts = value.split(" ")
         if len(parts) < 4:
@@ -753,8 +754,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             title = int(parts[0])
             chapter = int(parts[1])
 
-            # Title or chapter changed — rebuild snapshot with fresh metadata.
-            if title != self._last_progress_title or chapter != self._last_progress_chapter:
+            # A title change always means new content. Chapter only does on
+            # audio discs, where it is the track number (title stays 001); video
+            # chapters increment routinely and their metadata has dedicated
+            # events, so don't rebuild on them.
+            is_audio = self._snapshot.disc_type in _AUDIO_DISC_TYPES
+            if title != self._last_progress_title or (is_audio and chapter != self._last_progress_chapter):
                 self._last_progress_title = title
                 self._last_progress_chapter = chapter
                 # Apply the current sample immediately to avoid a visible
