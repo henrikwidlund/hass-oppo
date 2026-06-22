@@ -31,7 +31,7 @@ A custom Home Assistant integration for controlling Oppo UDP-203 and UDP-205 4K 
 2. Copy `custom_components/oppo_udp` into your HA `custom_components/` directory.
 3. Restart HA.
 
-Manual installs won’t auto-notify updates—watch the repo if you go this route.
+Manual installs won’t auto-notify updates-watch the repo if you go this route.
 
 ## Configuration
 
@@ -55,7 +55,7 @@ Manual installs won’t auto-notify updates—watch the repo if you go this rout
 
 This integration communicates with the player using the Oppo RS-232 and IP Control Protocol over TCP port 23. Commands are sent in the format `#CMD\r` and responses are received as `@OK value\r` or `@ER error\r`.
 
-The integration enables verbose mode 3 (detailed unsolicited status updates) so the player pushes state changes — including playback progress — in real-time without polling.
+The integration enables verbose mode 3 (detailed unsolicited status updates) so the player pushes state changes - including playback progress - in real-time without polling.
 
 ## Supported Input Sources
 
