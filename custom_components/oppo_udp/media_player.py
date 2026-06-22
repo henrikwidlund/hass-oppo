@@ -536,7 +536,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # player.
         self._cancel_verbose_mode_task()
         # Drop the whole snapshot so HA does not show stale media data while
-        # we are disconnected; reconnect rebuilds from scratch.
+        # we are disconnected; reconnect rebuilds from scratch via
+        # `_fetch_initial_state` before streaming resumes, so the @UTC progress
+        # cursor is intentionally left as-is — a stale value at most suppresses
+        # one redundant rebuild, never the metadata repopulation.
         self._snapshot = _Snapshot()
         self.async_write_ha_state()
         self._schedule_reconnect()
@@ -896,14 +899,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 return False
             self._set_media_position(snapshot, seconds)
             return True
-        # Remaining time (R total / X title / K chapter-track) -> derive duration.
-        if time_type in ("R", "X", "K"):
+        # Remaining time -> total duration (elapsed + remaining). Title/chapter
+        # remaining (X/K) is only a valid duration once the elapsed position is
+        # known; total remaining (R) also stands alone as a fallback before then.
+        if time_type == "R":
             duration = snapshot.media_position + seconds if snapshot.media_position is not None else seconds
-            if snapshot.media_duration == duration:
-                return False
-            snapshot.media_duration = duration
-            return True
-        return False
+        elif time_type in ("X", "K") and snapshot.media_position is not None:
+            duration = snapshot.media_position + seconds
+        else:
+            return False
+        if snapshot.media_duration == duration:
+            return False
+        snapshot.media_duration = duration
+        return True
 
     @staticmethod
     def _set_media_position(snapshot: _Snapshot, seconds: int) -> None:
