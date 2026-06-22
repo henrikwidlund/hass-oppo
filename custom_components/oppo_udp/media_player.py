@@ -746,7 +746,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         Applies the position from the stream, triggering a full metadata rebuild
         when the title (or, on audio discs, the track) changes.
         """
-        parts = value.split(" ")
+        parts = value.split()
         if len(parts) < 4:
             return
 
@@ -893,7 +893,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         Returns True only if the media position or duration changed, so the
         caller can skip a redundant state write for an unchanged value.
         """
-        parts = value.split(" ")
+        parts = value.split()
         if len(parts) < 4:
             return False
         time_type = parts[2]
