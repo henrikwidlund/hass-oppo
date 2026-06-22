@@ -741,7 +741,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.hass.async_create_task(self._rebuild_snapshot(), name=f"oppo_udp_rebuild_snapshot[{self._client.host}]")
 
     def _handle_time_code_event(self, value: str) -> None:
-        """Handle a streaming time code event: ``TT CC <type> HH:MM:SS``.
+        """Handle a streaming time code event: ``<title> <chapter> <type> HH:MM:SS``.
 
         Applies the position from the stream, triggering a full metadata rebuild
         when the title (or, on audio discs, the track) changes.
@@ -750,18 +750,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if len(parts) < 4:
             return
 
-        with contextlib.suppress(ValueError):
-            title = int(parts[0])
-            chapter = int(parts[1])
-
-            # A title change always means new content. Chapter only does on
-            # audio discs, where it is the track number (title stays 001); video
-            # chapters increment routinely and their metadata has dedicated
-            # events, so don't rebuild on them.
+        # Title is the content-change key; the chapter only matters on audio
+        # discs (where it is the track number — the title stays 001). Parse them
+        # independently so a malformed chapter can't suppress title-change
+        # detection. Both are digit strings per the protocol.
+        title = int(parts[0]) if parts[0].isdigit() else None
+        chapter = int(parts[1]) if parts[1].isdigit() else None
+        if title is not None:
+            # Video chapters increment routinely and their metadata has its own
+            # events, so only a title change (or an audio track change) rebuilds.
             is_audio = self._snapshot.disc_type in _AUDIO_DISC_TYPES
-            if title != self._last_progress_title or (is_audio and chapter != self._last_progress_chapter):
+            chapter_changed = is_audio and chapter is not None and chapter != self._last_progress_chapter
+            if title != self._last_progress_title or chapter_changed:
                 self._last_progress_title = title
-                self._last_progress_chapter = chapter
+                if chapter is not None:
+                    self._last_progress_chapter = chapter
                 # Apply the current sample immediately to avoid a visible
                 # position freeze/jump while waiting for the rebuild.
                 self._parse_time_code_event(value)
@@ -769,7 +772,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._schedule_rebuild_snapshot()
                 return
 
-        # Same title and chapter — apply position, writing state only when it moved.
+        # No content change — apply the frame, writing state only if the
+        # position or duration moved.
         if self._parse_time_code_event(value):
             self.async_write_ha_state()
 
@@ -884,7 +888,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         return source_response_map.get(raw, raw)
 
     def _parse_time_code_event(self, value: str) -> bool:
-        """Parse a streaming time code event: 'TT CC <type> HH:MM:SS'.
+        """Parse a streaming time code event: '<title> <chapter> <type> HH:MM:SS'.
 
         Returns True only if the media position or duration changed, so the
         caller can skip a redundant state write for an unchanged value.
