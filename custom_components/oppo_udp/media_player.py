@@ -741,7 +741,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.hass.async_create_task(self._rebuild_snapshot(), name=f"oppo_udp_rebuild_snapshot[{self._client.host}]")
 
     def _handle_time_code_event(self, value: str) -> None:
-        """Handle a streaming time code event: ``TT CC T HH:MM:SS``.
+        """Handle a streaming time code event: ``TT CC <type> HH:MM:SS``.
 
         Applies the position from the stream, triggering a full metadata rebuild
         when the title (or, on audio discs, the track) changes.
@@ -884,7 +884,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         return source_response_map.get(raw, raw)
 
     def _parse_time_code_event(self, value: str) -> bool:
-        """Parse a streaming time code event: 'TT CC T HH:MM:SS'.
+        """Parse a streaming time code event: 'TT CC <type> HH:MM:SS'.
 
         Returns True only if the media position or duration changed, so the
         caller can skip a redundant state write for an unchanged value.
