@@ -10,7 +10,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.15.17",
+    "ruff==0.15.18",
     "pyright==1.1.410"
 ]
 
