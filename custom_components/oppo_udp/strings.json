@@ -2,18 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "Oppo UDP-20X Player",
-        "description": "Set up your Oppo UDP-20X Blu-Ray player.",
+        "title": "Oppo / Magnetar Player",
+        "description": "Set up your Oppo UDP-20X or Magnetar Blu-Ray player.",
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
           "name": "Name",
-          "model": "Model"
+          "model": "Model",
+          "mac": "MAC address (Magnetar only)"
+        },
+        "data_description": {
+          "mac": "Required for Magnetar players; used to wake the player on power on. Ignored for Oppo players."
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to the player. Please check the IP address and ensure the player is powered on."
+      "cannot_connect": "Unable to connect to the player. Please check the IP address and ensure the player is powered on.",
+      "invalid_mac": "Enter a valid MAC address (e.g. 00:11:22:33:44:55). Required for Magnetar players."
     },
     "abort": {
       "already_configured": "This player is already configured."
