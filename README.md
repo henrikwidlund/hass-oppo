@@ -1,6 +1,6 @@
-# Oppo UDP-20X Home Assistant Integration
+# Oppo and Magnetar Home Assistant Integration
 
-A custom Home Assistant integration for controlling Oppo Blu-Ray players via their TCP/IP control protocol. Supported models: BDP-83, BDP-93/95, BDP-103/105 and UDP-203/205. Magnetar players are also supported (see [Magnetar players](#magnetar-players)).
+A custom Home Assistant integration for controlling Blu-Ray players via their TCP/IP control protocol. Supported models: BDP-83, BDP-93/95, BDP-103/105 and UDP-203/205. Magnetar players are also supported (see [Magnetar players](#magnetar-players)).
 
 ## Features
 

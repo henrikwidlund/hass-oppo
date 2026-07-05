@@ -1,6 +1,6 @@
 {
   "domain": "oppo_udp",
-  "name": "Oppo UDP-20X",
+  "name": "Oppo/Magnetar Blu-ray Players",
   "codeowners": ["@henrikwidlund"],
   "config_flow": true,
   "documentation": "https://github.com/henrikwidlund/hass-oppo",
