@@ -22,7 +22,18 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, INPUT_SOURCES_UDP203, INPUT_SOURCES_UDP205, MODEL_UDP205
+from .const import (
+    CONF_MAC,
+    CONF_MODEL,
+    DEFAULT_PORT,
+    DOMAIN,
+    INPUT_SOURCES_UDP203,
+    INPUT_SOURCES_UDP205,
+    MAGNETAR_MODELS,
+    MAGNETAR_PORT,
+    MODEL_UDP205,
+)
+from .magnetar_client import MagnetarClient
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +41,9 @@ _LOGGER = logging.getLogger(__name__)
 # Player ACKs PON before it can reliably accept SVM. Wait this long after
 # a power-on transition before sending the verbose-mode command.
 _VERBOSE_MODE_POWER_ON_DELAY = 1.0
+
+# How long to wait before retrying the control connection after a failure.
+_RECONNECT_INTERVAL = 30
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -111,12 +125,20 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Oppo UDP-20X media player from a config entry."""
     host = config_entry.data[CONF_HOST]
-    port = config_entry.data.get(CONF_PORT, DEFAULT_PORT)
-    name = config_entry.data.get(CONF_NAME, "Oppo UDP-20X")
     model = config_entry.data.get(CONF_MODEL, "UDP-203")
 
-    client = OppoClient(host, port=port)
-    entity = OppoUDPMediaPlayer(client, name, model, config_entry.entry_id)
+    entity: MediaPlayerEntity
+    if model in MAGNETAR_MODELS:
+        name = config_entry.data.get(CONF_NAME, "Magnetar")
+        port = config_entry.data.get(CONF_PORT, MAGNETAR_PORT)
+        mac = config_entry.data[CONF_MAC]
+        magnetar_client = MagnetarClient(host, mac, port=port)
+        entity = MagnetarMediaPlayer(magnetar_client, name, model, config_entry.entry_id)
+    else:
+        name = config_entry.data.get(CONF_NAME, "Oppo UDP-20X")
+        port = config_entry.data.get(CONF_PORT, DEFAULT_PORT)
+        client = OppoClient(host, port=port)
+        entity = OppoUDPMediaPlayer(client, name, model, config_entry.entry_id)
     async_add_entities([entity])
 
     # Entity services are global to the integration. Register them only once
@@ -135,6 +157,10 @@ _ENTITY_SERVICES: tuple[tuple[str, str], ...] = (
     ("audio_language_toggle", "async_audio_language_toggle"),
     ("subtitle_toggle", "async_subtitle_toggle"),
     ("zoom", "async_zoom"),
+    ("eject", "async_eject"),
+    ("fast_forward", "async_fast_forward"),
+    ("fast_reverse", "async_fast_reverse"),
+    ("power_toggle", "async_power_toggle"),
 )
 
 
@@ -510,7 +536,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._reconnect_cancel()
         self._unsub_reconnect = async_call_later(
             self.hass,
-            30,
+            _RECONNECT_INTERVAL,
             HassJob(self._reconnect_callback),
         )
 
@@ -1056,6 +1082,28 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Cycle zoom / aspect-ratio mode."""
         await self._client.zoom()
 
+    async def async_eject(self) -> None:
+        """Toggle the disc tray open/closed."""
+        await self._client.eject_toggle()
+
+    async def async_fast_forward(self) -> None:
+        """Fast forward (cycles through the player's FF speeds)."""
+        await self._client.fast_forward()
+
+    async def async_fast_reverse(self) -> None:
+        """Fast reverse (cycles through the player's rewind speeds)."""
+        await self._client.fast_reverse()
+
+    async def async_power_toggle(self) -> None:
+        """Toggle power, mirroring turn_on/turn_off bookkeeping."""
+        new_state = await self._client.power_toggle()
+        if new_state == PowerState.ON:
+            self._schedule_ensure_verbose_mode()
+        elif new_state == PowerState.OFF:
+            self._cancel_verbose_mode_task()
+            self._snapshot = _Snapshot(power_state=PowerState.OFF)
+            self.async_write_ha_state()
+
     @override
     async def async_set_repeat(self, repeat: HARepeatMode) -> None:
         """Set repeat mode (clears shuffle on the player)."""
@@ -1089,3 +1137,264 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.shuffle = new_mode in _OPPO_SHUFFLE_MODES
         # No streaming event reports repeat changes, so push state ourselves.
         self.async_write_ha_state()
+
+
+class MagnetarMediaPlayer(MediaPlayerEntity):
+    """Representation of a Magnetar player.
+
+    The Magnetar network-control protocol is fire-and-forget: commands are
+    acknowledged with ``ack`` and the player reports no power, playback or
+    volume state. All state shown here is therefore optimistic — updated from
+    the commands we send, not from the player.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = None
+    _attr_should_poll = False
+    _attr_translation_key = "magnetar"
+
+    def __init__(
+        self,
+        client: MagnetarClient,
+        name: str,
+        model: str,
+        entry_id: str,
+    ) -> None:
+        """Initialize the Magnetar media player."""
+        self._client = client
+        self._name = name
+        self._model = model
+        self._attr_unique_id = f"oppo_udp_{entry_id}"
+        # Optimistic state — the protocol gives no feedback.
+        self._power_state = PowerState.UNKNOWN
+        self._playback_status = PlaybackStatus.UNKNOWN
+        self._is_muted = False
+        self._unsub_reconnect: CALLBACK_TYPE | None = None
+
+    @property
+    @override
+    def device_info(self) -> DeviceInfo | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return device info."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._client.host)},
+            name=self._name,
+            manufacturer="Magnetar",
+            model=self._model,
+        )
+
+    @property
+    @override
+    def supported_features(self) -> MediaPlayerEntityFeature:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the supported features.
+
+        Volume is step-only and mute is a blind toggle — the protocol has no
+        set-volume command and no way to read the current level. Source
+        selection and repeat/shuffle are likewise unavailable.
+        """
+        return (
+            MediaPlayerEntityFeature.TURN_ON
+            | MediaPlayerEntityFeature.TURN_OFF
+            | MediaPlayerEntityFeature.PLAY
+            | MediaPlayerEntityFeature.PAUSE
+            | MediaPlayerEntityFeature.STOP
+            | MediaPlayerEntityFeature.NEXT_TRACK
+            | MediaPlayerEntityFeature.PREVIOUS_TRACK
+            | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.VOLUME_MUTE
+        )
+
+    @property
+    @override
+    def available(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return if the control connection is currently open."""
+        return self._client.connected
+
+    @property
+    @override
+    def state(self) -> MediaPlayerState | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the optimistic player state."""
+        if self._power_state == PowerState.OFF:
+            return MediaPlayerState.OFF
+        if self._power_state == PowerState.UNKNOWN:
+            return None
+        return PLAYBACK_TO_STATE.get(self._playback_status, MediaPlayerState.IDLE)
+
+    @property
+    @override
+    def is_volume_muted(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the last mute state we set (optimistic)."""
+        return self._is_muted
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when entity is added to hass."""
+        await super().async_added_to_hass()
+        await self._ensure_connected()
+
+    @override
+    async def async_will_remove_from_hass(self) -> None:
+        """Run when entity is removed from hass."""
+        self._reconnect_cancel()
+        await self._client.disconnect()
+
+    async def _ensure_connected(self) -> None:
+        """Open the connection, scheduling a retry on failure."""
+        if await self._client.connect():
+            self._reconnect_cancel()
+            self.async_write_ha_state()
+            return
+        self._schedule_reconnect()
+
+    def _schedule_reconnect(self) -> None:
+        """Schedule a reconnection attempt."""
+        self._reconnect_cancel()
+        self._unsub_reconnect = async_call_later(
+            self.hass,
+            _RECONNECT_INTERVAL,
+            HassJob(self._reconnect_callback),
+        )
+
+    def _reconnect_cancel(self) -> None:
+        """Cancel any pending reconnection."""
+        if self._unsub_reconnect is not None:
+            self._unsub_reconnect()
+            self._unsub_reconnect = None
+
+    async def _reconnect_callback(self, _now: datetime) -> None:
+        """Attempt to reconnect."""
+        self._unsub_reconnect = None
+        if not self._client.connected:
+            await self._ensure_connected()
+
+    def _after_command(self, ok: bool) -> None:  # noqa: FBT001
+        """React to a command result: recover availability or reconnect.
+
+        Always writes state (optimistic fields may have changed); on failure
+        the connection has dropped, so also schedule a reconnect.
+        """
+        self.async_write_ha_state()
+        if not ok:
+            self._schedule_reconnect()
+
+    # --- Commands ---
+
+    @override
+    async def async_turn_on(self) -> None:
+        """Wake the player and turn it on."""
+        ok = await self._client.power_on()
+        if ok:
+            self._power_state = PowerState.ON
+            self._playback_status = PlaybackStatus.STOP
+        self._after_command(ok)
+
+    @override
+    async def async_turn_off(self) -> None:
+        """Turn the player off."""
+        ok = await self._client.power_off()
+        if ok:
+            self._power_state = PowerState.OFF
+            self._playback_status = PlaybackStatus.UNKNOWN
+        self._after_command(ok)
+
+    @override
+    async def async_media_play(self) -> None:
+        """Send play command."""
+        ok = await self._client.play()
+        if ok:
+            self._power_state = PowerState.ON
+            self._playback_status = PlaybackStatus.PLAY
+        self._after_command(ok)
+
+    @override
+    async def async_media_pause(self) -> None:
+        """Send pause command."""
+        ok = await self._client.pause()
+        if ok:
+            self._playback_status = PlaybackStatus.PAUSE
+        self._after_command(ok)
+
+    @override
+    async def async_media_stop(self) -> None:
+        """Send stop command."""
+        ok = await self._client.stop()
+        if ok:
+            self._playback_status = PlaybackStatus.STOP
+        self._after_command(ok)
+
+    @override
+    async def async_media_next_track(self) -> None:
+        """Send next track command."""
+        self._after_command(await self._client.next_track())
+
+    @override
+    async def async_media_previous_track(self) -> None:
+        """Send previous track command."""
+        self._after_command(await self._client.previous_track())
+
+    @override
+    async def async_volume_up(self) -> None:
+        """Raise volume by one step."""
+        self._after_command(await self._client.volume_up())
+
+    @override
+    async def async_volume_down(self) -> None:
+        """Lower volume by one step."""
+        self._after_command(await self._client.volume_down())
+
+    @override
+    async def async_mute_volume(self, mute: bool) -> None:
+        """Toggle mute (blind — the player reports no mute state)."""
+        if mute == self._is_muted:
+            return
+        ok = await self._client.mute_toggle()
+        if ok:
+            self._is_muted = mute
+        self._after_command(ok)
+
+    async def async_dimmer(self) -> None:
+        """Cycle the front-panel dimmer."""
+        self._after_command(await self._client.dimmer())
+
+    async def async_pure_audio_toggle(self) -> None:
+        """Toggle Pure Tone mode."""
+        self._after_command(await self._client.pure_audio_toggle())
+
+    async def async_info_toggle(self) -> None:
+        """Show/hide on-screen display."""
+        self._after_command(await self._client.info_toggle())
+
+    async def async_audio_language_toggle(self) -> None:
+        """Cycle audio language/channel."""
+        self._after_command(await self._client.audio_language_toggle())
+
+    async def async_subtitle_toggle(self) -> None:
+        """Cycle subtitle language."""
+        self._after_command(await self._client.subtitle_toggle())
+
+    async def async_zoom(self) -> None:
+        """Cycle zoom / aspect-ratio mode."""
+        self._after_command(await self._client.zoom())
+
+    async def async_eject(self) -> None:
+        """Toggle the disc tray open/closed."""
+        self._after_command(await self._client.eject_toggle())
+
+    async def async_fast_forward(self) -> None:
+        """Fast forward (cycles through the player's FF speeds)."""
+        self._after_command(await self._client.fast_forward())
+
+    async def async_fast_reverse(self) -> None:
+        """Fast reverse (cycles through the player's rewind speeds)."""
+        self._after_command(await self._client.fast_reverse())
+
+    async def async_power_toggle(self) -> None:
+        """Toggle power optimistically (the player reports no power state)."""
+        ok = await self._client.power_toggle()
+        if ok:
+            if self._power_state == PowerState.ON:
+                self._power_state = PowerState.OFF
+                self._playback_status = PlaybackStatus.UNKNOWN
+            else:
+                self._power_state = PowerState.ON
+                self._playback_status = PlaybackStatus.STOP
+        self._after_command(ok)

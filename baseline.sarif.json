@@ -7,7 +7,7 @@
         "driver": {
           "name": "QDPY",
           "fullName": "Qodana for Python",
-          "version": "261.24093",
+          "version": "261.25883",
           "rules": [],
           "taxa": [
             {
@@ -105,7 +105,7 @@
         "extensions": [
           {
             "name": "org.editorconfig.editorconfigjetbrains",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "EditorConfigCharClassRedundancy",
@@ -1103,7 +1103,7 @@
           },
           {
             "name": "PythonCore",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "PyPandasSeriesToListInspection",
@@ -1922,22 +1922,22 @@
                 ]
               },
               {
-                "id": "PoetryPackageVersionsInspection",
+                "id": "PyMethodOverridingInspection",
                 "shortDescription": {
-                  "text": "Outdated Poetry package versions"
+                  "text": "Method signature does not match signature of overridden method"
                 },
                 "fullDescription": {
-                  "text": "Reports outdated versions of packages in '[tool.poetry.dependencies]' and '[tool.poetry.dev-dependencies]' sections of 'pyproject.toml'. Inspection ID: PoetryPackageVersionsInspection",
-                  "markdown": "Reports outdated versions of packages in `[tool.poetry.dependencies]` and `[tool.poetry.dev-dependencies]`\nsections of `pyproject.toml`.\n\nInspection ID: PoetryPackageVersionsInspection"
+                  "text": "Reports inconsistencies in overriding method signatures. Example: 'class Book:\n    def add_title(self):\n        pass\n\n\nclass Novel(Book):\n    def add_title(self, text):\n        pass' Parameters of the 'add_title' method in the 'Novel' class do not match the method signature specified in the 'Book' class. As a fix, the IDE offers to apply the Change Signature refactoring. Inspection ID: PyMethodOverridingInspection",
+                  "markdown": "Reports inconsistencies in overriding method signatures.\n\n**Example:**\n\n\n    class Book:\n        def add_title(self):\n            pass\n\n\n    class Novel(Book):\n        def add_title(self, text):\n            pass\n\nParameters of the `add_title` method in the `Novel` class do not match the method\nsignature specified in the `Book` class. As a fix, the IDE offers to apply the Change Signature\nrefactoring.\n\nInspection ID: PyMethodOverridingInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
                   "level": "warning",
                   "parameters": {
-                    "suppressToolId": "PoetryPackageVersions",
+                    "suppressToolId": "PyMethodOverriding",
                     "ideaSeverity": "WARNING",
                     "qodanaSeverity": "High",
-                    "codeQualityCategory": "Unspecified"
+                    "codeQualityCategory": "Reliability"
                   }
                 },
                 "relationships": [
@@ -1956,22 +1956,22 @@
                 ]
               },
               {
-                "id": "PyMethodOverridingInspection",
+                "id": "PoetryPackageVersionsInspection",
                 "shortDescription": {
-                  "text": "Method signature does not match signature of overridden method"
+                  "text": "Outdated Poetry package versions"
                 },
                 "fullDescription": {
-                  "text": "Reports inconsistencies in overriding method signatures. Example: 'class Book:\n    def add_title(self):\n        pass\n\n\nclass Novel(Book):\n    def add_title(self, text):\n        pass' Parameters of the 'add_title' method in the 'Novel' class do not match the method signature specified in the 'Book' class. As a fix, the IDE offers to apply the Change Signature refactoring. Inspection ID: PyMethodOverridingInspection",
-                  "markdown": "Reports inconsistencies in overriding method signatures.\n\n**Example:**\n\n\n    class Book:\n        def add_title(self):\n            pass\n\n\n    class Novel(Book):\n        def add_title(self, text):\n            pass\n\nParameters of the `add_title` method in the `Novel` class do not match the method\nsignature specified in the `Book` class. As a fix, the IDE offers to apply the Change Signature\nrefactoring.\n\nInspection ID: PyMethodOverridingInspection"
+                  "text": "Reports outdated versions of packages in '[tool.poetry.dependencies]' and '[tool.poetry.dev-dependencies]' sections of 'pyproject.toml'. Inspection ID: PoetryPackageVersionsInspection",
+                  "markdown": "Reports outdated versions of packages in `[tool.poetry.dependencies]` and `[tool.poetry.dev-dependencies]`\nsections of `pyproject.toml`.\n\nInspection ID: PoetryPackageVersionsInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
                   "level": "warning",
                   "parameters": {
-                    "suppressToolId": "PyMethodOverriding",
+                    "suppressToolId": "PoetryPackageVersions",
                     "ideaSeverity": "WARNING",
                     "qodanaSeverity": "High",
-                    "codeQualityCategory": "Reliability"
+                    "codeQualityCategory": "Unspecified"
                   }
                 },
                 "relationships": [
@@ -2092,21 +2092,21 @@
                 ]
               },
               {
-                "id": "CommandLineInspection",
+                "id": "PyComparisonWithNoneInspection",
                 "shortDescription": {
-                  "text": "Incorrect CLI syntax"
+                  "text": "Using equality operators to compare with None"
                 },
                 "fullDescription": {
-                  "text": "Reports the problems if the arguments of the command you type in the console are not in the proper order. The inspection also verifies that option names and arguments are correct. Do not disable the inspection if you are going to use command-line interfaces like manage.py in Django. Inspection ID: CommandLineInspection",
-                  "markdown": "Reports the problems if the arguments of the command you type in the console are not in the proper order. The inspection also verifies\nthat option names and arguments are correct.\n\nDo not disable the inspection if you are going to use command-line interfaces like [manage.py in Django](https://www.jetbrains.com/help/pycharm/running-manage-py.html).\n\nInspection ID: CommandLineInspection"
+                  "text": "Reports comparisons with 'None'. That type of comparisons should always be done with 'is' or 'is not', never the equality operators. Example: 'a = 2\n\n\nif a == None:\n    print(\"Success\")' Once the quick-fix is applied, the code changes to: 'a = 2\n\n\nif a is None:\n    print(\"Success\")' Inspection ID: PyComparisonWithNoneInspection",
+                  "markdown": "Reports comparisons with `None`. That type of comparisons\nshould always be done with `is` or `is not`, never\nthe equality operators.\n\n**Example:**\n\n\n    a = 2\n\n\n    if a == None:\n        print(\"Success\")\n\nOnce the quick-fix is applied, the code changes to:\n\n\n    a = 2\n\n\n    if a is None:\n        print(\"Success\")\n\nInspection ID: PyComparisonWithNoneInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
-                  "level": "warning",
+                  "level": "note",
                   "parameters": {
-                    "suppressToolId": "CommandLineInspection",
-                    "ideaSeverity": "WARNING",
-                    "qodanaSeverity": "High",
+                    "suppressToolId": "PyComparisonWithNone",
+                    "ideaSeverity": "WEAK WARNING",
+                    "qodanaSeverity": "Moderate",
                     "codeQualityCategory": "Reliability"
                   }
                 },
@@ -2126,21 +2126,21 @@
                 ]
               },
               {
-                "id": "PyComparisonWithNoneInspection",
+                "id": "CommandLineInspection",
                 "shortDescription": {
-                  "text": "Using equality operators to compare with None"
+                  "text": "Incorrect CLI syntax"
                 },
                 "fullDescription": {
-                  "text": "Reports comparisons with 'None'. That type of comparisons should always be done with 'is' or 'is not', never the equality operators. Example: 'a = 2\n\n\nif a == None:\n    print(\"Success\")' Once the quick-fix is applied, the code changes to: 'a = 2\n\n\nif a is None:\n    print(\"Success\")' Inspection ID: PyComparisonWithNoneInspection",
-                  "markdown": "Reports comparisons with `None`. That type of comparisons\nshould always be done with `is` or `is not`, never\nthe equality operators.\n\n**Example:**\n\n\n    a = 2\n\n\n    if a == None:\n        print(\"Success\")\n\nOnce the quick-fix is applied, the code changes to:\n\n\n    a = 2\n\n\n    if a is None:\n        print(\"Success\")\n\nInspection ID: PyComparisonWithNoneInspection"
+                  "text": "Reports the problems if the arguments of the command you type in the console are not in the proper order. The inspection also verifies that option names and arguments are correct. Do not disable the inspection if you are going to use command-line interfaces like manage.py in Django. Inspection ID: CommandLineInspection",
+                  "markdown": "Reports the problems if the arguments of the command you type in the console are not in the proper order. The inspection also verifies\nthat option names and arguments are correct.\n\nDo not disable the inspection if you are going to use command-line interfaces like [manage.py in Django](https://www.jetbrains.com/help/pycharm/running-manage-py.html).\n\nInspection ID: CommandLineInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
-                  "level": "note",
+                  "level": "warning",
                   "parameters": {
-                    "suppressToolId": "PyComparisonWithNone",
-                    "ideaSeverity": "WEAK WARNING",
-                    "qodanaSeverity": "Moderate",
+                    "suppressToolId": "CommandLineInspection",
+                    "ideaSeverity": "WARNING",
+                    "qodanaSeverity": "High",
                     "codeQualityCategory": "Reliability"
                   }
                 },
@@ -2262,22 +2262,22 @@
                 ]
               },
               {
-                "id": "PyMethodParametersInspection",
+                "id": "PyChainedComparisonsInspection",
                 "shortDescription": {
-                  "text": "Improper first parameter"
+                  "text": "Too complex chained comparisons"
                 },
                 "fullDescription": {
-                  "text": "Reports methods that lack the first parameter that is usually named 'self'. Example: 'class Movie:\n\n   def show():\n       pass' When the quick-fix is applied, the code changes to: 'class Movie:\n\n   def show(self):\n       pass' The inspection also reports naming issues in class methods. Example: 'class Movie:\n    @classmethod\n    def show(abc):\n        pass' Since the first parameter of a class method should be 'cls', the IDE provides a quick-fix to rename it. Inspection ID: PyMethodParametersInspection",
-                  "markdown": "Reports methods that lack the first parameter that is usually\nnamed `self`.\n\n**Example:**\n\n\n    class Movie:\n\n       def show():\n           pass\n\nWhen the quick-fix is applied, the code changes to:\n\n\n    class Movie:\n\n       def show(self):\n           pass\n\nThe inspection also reports naming issues in class methods.\n\n**Example:**\n\n\n    class Movie:\n        @classmethod\n        def show(abc):\n            pass\n\nSince the first parameter of a class method should be `cls`, the IDE provides a quick-fix\nto rename it.\n\nInspection ID: PyMethodParametersInspection"
+                  "text": "Reports chained comparisons that can be simplified. Example: 'def do_comparison(x):\n    xmin = 10\n    xmax = 100\n    if x >= xmin and x <= xmax:\n        pass' The IDE offers to simplify 'if x >= xmin and x <= xmax'. When the quick-fix is applied, the code changes to: 'def do_comparison(x):\n    xmin = 10\n    xmax = 100\n    if xmin <= x <= xmax:\n        pass' Inspection ID: PyChainedComparisonsInspection",
+                  "markdown": "Reports chained comparisons that can be simplified.\n\n**Example:**\n\n\n    def do_comparison(x):\n        xmin = 10\n        xmax = 100\n        if x >= xmin and x <= xmax:\n            pass\n\nThe IDE offers to simplify `if x >= xmin and x <= xmax`.\nWhen the quick-fix is applied, the code changes to:\n\n\n    def do_comparison(x):\n        xmin = 10\n        xmax = 100\n        if xmin <= x <= xmax:\n            pass\n\nInspection ID: PyChainedComparisonsInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
                   "level": "note",
                   "parameters": {
-                    "suppressToolId": "PyMethodParameters",
+                    "suppressToolId": "PyChainedComparisons",
                     "ideaSeverity": "WEAK WARNING",
                     "qodanaSeverity": "Moderate",
-                    "codeQualityCategory": "Reliability"
+                    "codeQualityCategory": "Code Style"
                   }
                 },
                 "relationships": [
@@ -2296,22 +2296,22 @@
                 ]
               },
               {
-                "id": "PyChainedComparisonsInspection",
+                "id": "PyMethodParametersInspection",
                 "shortDescription": {
-                  "text": "Too complex chained comparisons"
+                  "text": "Improper first parameter"
                 },
                 "fullDescription": {
-                  "text": "Reports chained comparisons that can be simplified. Example: 'def do_comparison(x):\n    xmin = 10\n    xmax = 100\n    if x >= xmin and x <= xmax:\n        pass' The IDE offers to simplify 'if x >= xmin and x <= xmax'. When the quick-fix is applied, the code changes to: 'def do_comparison(x):\n    xmin = 10\n    xmax = 100\n    if xmin <= x <= xmax:\n        pass' Inspection ID: PyChainedComparisonsInspection",
-                  "markdown": "Reports chained comparisons that can be simplified.\n\n**Example:**\n\n\n    def do_comparison(x):\n        xmin = 10\n        xmax = 100\n        if x >= xmin and x <= xmax:\n            pass\n\nThe IDE offers to simplify `if x >= xmin and x <= xmax`.\nWhen the quick-fix is applied, the code changes to:\n\n\n    def do_comparison(x):\n        xmin = 10\n        xmax = 100\n        if xmin <= x <= xmax:\n            pass\n\nInspection ID: PyChainedComparisonsInspection"
+                  "text": "Reports methods that lack the first parameter that is usually named 'self'. Example: 'class Movie:\n\n   def show():\n       pass' When the quick-fix is applied, the code changes to: 'class Movie:\n\n   def show(self):\n       pass' The inspection also reports naming issues in class methods. Example: 'class Movie:\n    @classmethod\n    def show(abc):\n        pass' Since the first parameter of a class method should be 'cls', the IDE provides a quick-fix to rename it. Inspection ID: PyMethodParametersInspection",
+                  "markdown": "Reports methods that lack the first parameter that is usually\nnamed `self`.\n\n**Example:**\n\n\n    class Movie:\n\n       def show():\n           pass\n\nWhen the quick-fix is applied, the code changes to:\n\n\n    class Movie:\n\n       def show(self):\n           pass\n\nThe inspection also reports naming issues in class methods.\n\n**Example:**\n\n\n    class Movie:\n        @classmethod\n        def show(abc):\n            pass\n\nSince the first parameter of a class method should be `cls`, the IDE provides a quick-fix\nto rename it.\n\nInspection ID: PyMethodParametersInspection"
                 },
                 "defaultConfiguration": {
                   "enabled": true,
                   "level": "note",
                   "parameters": {
-                    "suppressToolId": "PyChainedComparisons",
+                    "suppressToolId": "PyMethodParameters",
                     "ideaSeverity": "WEAK WARNING",
                     "qodanaSeverity": "Moderate",
-                    "codeQualityCategory": "Code Style"
+                    "codeQualityCategory": "Reliability"
                   }
                 },
                 "relationships": [
@@ -4617,7 +4617,7 @@
           },
           {
             "name": "com.jetbrains.sh",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "ShellCheck",
@@ -4663,7 +4663,7 @@
           },
           {
             "name": "com.intellij",
-            "version": "261.24093",
+            "version": "261.25883",
             "rules": [
               {
                 "id": "XmlHighlighting",
@@ -4870,40 +4870,6 @@
                 ]
               },
               {
-                "id": "RequiredAttributes",
-                "shortDescription": {
-                  "text": "Missing required attribute"
-                },
-                "fullDescription": {
-                  "text": "Reports a missing mandatory attribute in an XML/HTML tag. Suggests configuring attributes that should not be reported. Inspection ID: RequiredAttributes",
-                  "markdown": "Reports a missing mandatory attribute in an XML/HTML tag. Suggests configuring attributes that should not be reported.\n\nInspection ID: RequiredAttributes"
-                },
-                "defaultConfiguration": {
-                  "enabled": false,
-                  "level": "warning",
-                  "parameters": {
-                    "suppressToolId": "RequiredAttributes",
-                    "ideaSeverity": "WARNING",
-                    "qodanaSeverity": "High",
-                    "codeQualityCategory": "Reliability"
-                  }
-                },
-                "relationships": [
-                  {
-                    "target": {
-                      "id": "HTML",
-                      "index": 12,
-                      "toolComponent": {
-                        "name": "QDPY"
-                      }
-                    },
-                    "kinds": [
-                      "superset"
-                    ]
-                  }
-                ]
-              },
-              {
                 "id": "DuplicatedCode",
                 "shortDescription": {
                   "text": "Duplicated code fragment"
@@ -4927,6 +4893,40 @@
                     "target": {
                       "id": "General",
                       "index": 13,
+                      "toolComponent": {
+                        "name": "QDPY"
+                      }
+                    },
+                    "kinds": [
+                      "superset"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "RequiredAttributes",
+                "shortDescription": {
+                  "text": "Missing required attribute"
+                },
+                "fullDescription": {
+                  "text": "Reports a missing mandatory attribute in an XML/HTML tag. Suggests configuring attributes that should not be reported. Inspection ID: RequiredAttributes",
+                  "markdown": "Reports a missing mandatory attribute in an XML/HTML tag. Suggests configuring attributes that should not be reported.\n\nInspection ID: RequiredAttributes"
+                },
+                "defaultConfiguration": {
+                  "enabled": false,
+                  "level": "warning",
+                  "parameters": {
+                    "suppressToolId": "RequiredAttributes",
+                    "ideaSeverity": "WARNING",
+                    "qodanaSeverity": "High",
+                    "codeQualityCategory": "Reliability"
+                  }
+                },
+                "relationships": [
+                  {
+                    "target": {
+                      "id": "HTML",
+                      "index": 12,
                       "toolComponent": {
                         "name": "QDPY"
                       }
@@ -5788,40 +5788,6 @@
                 ]
               },
               {
-                "id": "RegExpRedundantNestedCharacterClass",
-                "shortDescription": {
-                  "text": "Redundant nested character class"
-                },
-                "fullDescription": {
-                  "text": "Reports unnecessary nested character classes. Example: '[a-c[x-z]]' After the quick-fix is applied: '[a-cx-z]' New in 2020.2 Inspection ID: RegExpRedundantNestedCharacterClass",
-                  "markdown": "Reports unnecessary nested character classes.\n\n**Example:**\n\n\n      [a-c[x-z]]\n\nAfter the quick-fix is applied:\n\n\n      [a-cx-z]\n\nNew in 2020.2\n\nInspection ID: RegExpRedundantNestedCharacterClass"
-                },
-                "defaultConfiguration": {
-                  "enabled": true,
-                  "level": "warning",
-                  "parameters": {
-                    "suppressToolId": "RegExpRedundantNestedCharacterClass",
-                    "ideaSeverity": "WARNING",
-                    "qodanaSeverity": "High",
-                    "codeQualityCategory": "Code Style"
-                  }
-                },
-                "relationships": [
-                  {
-                    "target": {
-                      "id": "RegExp",
-                      "index": 8,
-                      "toolComponent": {
-                        "name": "QDPY"
-                      }
-                    },
-                    "kinds": [
-                      "superset"
-                    ]
-                  }
-                ]
-              },
-              {
                 "id": "XmlDeprecatedElement",
                 "shortDescription": {
                   "text": "Deprecated symbol"
@@ -5845,6 +5811,40 @@
                     "target": {
                       "id": "XML",
                       "index": 4,
+                      "toolComponent": {
+                        "name": "QDPY"
+                      }
+                    },
+                    "kinds": [
+                      "superset"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "RegExpRedundantNestedCharacterClass",
+                "shortDescription": {
+                  "text": "Redundant nested character class"
+                },
+                "fullDescription": {
+                  "text": "Reports unnecessary nested character classes. Example: '[a-c[x-z]]' After the quick-fix is applied: '[a-cx-z]' New in 2020.2 Inspection ID: RegExpRedundantNestedCharacterClass",
+                  "markdown": "Reports unnecessary nested character classes.\n\n**Example:**\n\n\n      [a-c[x-z]]\n\nAfter the quick-fix is applied:\n\n\n      [a-cx-z]\n\nNew in 2020.2\n\nInspection ID: RegExpRedundantNestedCharacterClass"
+                },
+                "defaultConfiguration": {
+                  "enabled": true,
+                  "level": "warning",
+                  "parameters": {
+                    "suppressToolId": "RegExpRedundantNestedCharacterClass",
+                    "ideaSeverity": "WARNING",
+                    "qodanaSeverity": "High",
+                    "codeQualityCategory": "Code Style"
+                  }
+                },
+                "relationships": [
+                  {
+                    "target": {
+                      "id": "RegExp",
+                      "index": 8,
                       "toolComponent": {
                         "name": "QDPY"
                       }
@@ -5992,40 +5992,6 @@
                 ]
               },
               {
-                "id": "HtmlExtraClosingTag",
-                "shortDescription": {
-                  "text": "Redundant closing tag"
-                },
-                "fullDescription": {
-                  "text": "Reports redundant closing tags on empty elements, for example, 'img' or 'br'. Example: '<html>\n    <body>\n      <br></br>\n    </body>\n  </html>' After the quick-fix is applied: '<html>\n    <body>\n      <br>\n    </body>\n  </html>' Inspection ID: HtmlExtraClosingTag",
-                  "markdown": "Reports redundant closing tags on empty elements, for example, `img` or `br`.\n\n**Example:**\n\n\n      <html>\n        <body>\n          <br></br>\n        </body>\n      </html>\n\nAfter the quick-fix is applied:\n\n\n      <html>\n        <body>\n          <br>\n        </body>\n      </html>\n\nInspection ID: HtmlExtraClosingTag"
-                },
-                "defaultConfiguration": {
-                  "enabled": false,
-                  "level": "warning",
-                  "parameters": {
-                    "suppressToolId": "HtmlExtraClosingTag",
-                    "ideaSeverity": "WARNING",
-                    "qodanaSeverity": "High",
-                    "codeQualityCategory": "Code Style"
-                  }
-                },
-                "relationships": [
-                  {
-                    "target": {
-                      "id": "HTML",
-                      "index": 12,
-                      "toolComponent": {
-                        "name": "QDPY"
-                      }
-                    },
-                    "kinds": [
-                      "superset"
-                    ]
-                  }
-                ]
-              },
-              {
                 "id": "RegExpOctalEscape",
                 "shortDescription": {
                   "text": "Octal escape"
@@ -6049,6 +6015,40 @@
                     "target": {
                       "id": "RegExp",
                       "index": 8,
+                      "toolComponent": {
+                        "name": "QDPY"
+                      }
+                    },
+                    "kinds": [
+                      "superset"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "HtmlExtraClosingTag",
+                "shortDescription": {
+                  "text": "Redundant closing tag"
+                },
+                "fullDescription": {
+                  "text": "Reports redundant closing tags on empty elements, for example, 'img' or 'br'. Example: '<html>\n    <body>\n      <br></br>\n    </body>\n  </html>' After the quick-fix is applied: '<html>\n    <body>\n      <br>\n    </body>\n  </html>' Inspection ID: HtmlExtraClosingTag",
+                  "markdown": "Reports redundant closing tags on empty elements, for example, `img` or `br`.\n\n**Example:**\n\n\n      <html>\n        <body>\n          <br></br>\n        </body>\n      </html>\n\nAfter the quick-fix is applied:\n\n\n      <html>\n        <body>\n          <br>\n        </body>\n      </html>\n\nInspection ID: HtmlExtraClosingTag"
+                },
+                "defaultConfiguration": {
+                  "enabled": false,
+                  "level": "warning",
+                  "parameters": {
+                    "suppressToolId": "HtmlExtraClosingTag",
+                    "ideaSeverity": "WARNING",
+                    "qodanaSeverity": "High",
+                    "codeQualityCategory": "Code Style"
+                  }
+                },
+                "relationships": [
+                  {
+                    "target": {
+                      "id": "HTML",
+                      "index": 12,
                       "toolComponent": {
                         "name": "QDPY"
                       }
@@ -6400,40 +6400,6 @@
                 ]
               },
               {
-                "id": "LossyEncoding",
-                "shortDescription": {
-                  "text": "Lossy encoding"
-                },
-                "fullDescription": {
-                  "text": "Reports characters that cannot be displayed because of the current document encoding. Examples: If you type international characters in a document with the US-ASCII charset, some characters will be lost on save. If you load a UTF-8-encoded file using the ISO-8859-1 one-byte charset, some characters will be displayed incorrectly. You can fix this by changing the file encoding either by specifying the encoding directly in the file, e.g. by editing 'encoding=' attribute in the XML prolog of XML file, or by changing the corresponding options in Settings | Editor | File Encodings. Inspection ID: LossyEncoding",
-                  "markdown": "Reports characters that cannot be displayed because of the current document encoding.\n\nExamples:\n\n* If you type international characters in a document with the **US-ASCII** charset, some characters will be lost on save.\n* If you load a **UTF-8** -encoded file using the **ISO-8859-1** one-byte charset, some characters will be displayed incorrectly.\n\nYou can fix this by changing the file encoding\neither by specifying the encoding directly in the file, e.g. by editing `encoding=` attribute in the XML prolog of XML file,\nor by changing the corresponding options in **Settings \\| Editor \\| File Encodings**.\n\nInspection ID: LossyEncoding"
-                },
-                "defaultConfiguration": {
-                  "enabled": false,
-                  "level": "warning",
-                  "parameters": {
-                    "suppressToolId": "LossyEncoding",
-                    "ideaSeverity": "WARNING",
-                    "qodanaSeverity": "High",
-                    "codeQualityCategory": "Reliability"
-                  }
-                },
-                "relationships": [
-                  {
-                    "target": {
-                      "id": "Internationalization",
-                      "index": 17,
-                      "toolComponent": {
-                        "name": "QDPY"
-                      }
-                    },
-                    "kinds": [
-                      "superset"
-                    ]
-                  }
-                ]
-              },
-              {
                 "id": "RegExpEscapedMetaCharacter",
                 "shortDescription": {
                   "text": "Escaped meta character"
@@ -6468,29 +6434,29 @@
                 ]
               },
               {
-                "id": "RegExpRepeatedSpace",
+                "id": "LossyEncoding",
                 "shortDescription": {
-                  "text": "Consecutive spaces"
+                  "text": "Lossy encoding"
                 },
                 "fullDescription": {
-                  "text": "Reports multiple consecutive spaces in a RegExp. Because spaces are not visible by default, it can be hard to see how many spaces are required. The RegExp can be made more clear by replacing the consecutive spaces with a single space and a counted quantifier. Example: '(     )' After the quick-fix is applied: '( {5})' New in 2017.1 Inspection ID: RegExpRepeatedSpace",
-                  "markdown": "Reports multiple consecutive spaces in a RegExp. Because spaces are not visible by default, it can be hard to see how many spaces are required. The RegExp can be made more clear by replacing the consecutive spaces with a single space and a counted quantifier.\n\n**Example:**\n\n\n      (     )\n\nAfter the quick-fix is applied:\n\n\n      ( {5})\n\n\nNew in 2017.1\n\nInspection ID: RegExpRepeatedSpace"
+                  "text": "Reports characters that cannot be displayed because of the current document encoding. Examples: If you type international characters in a document with the US-ASCII charset, some characters will be lost on save. If you load a UTF-8-encoded file using the ISO-8859-1 one-byte charset, some characters will be displayed incorrectly. You can fix this by changing the file encoding either by specifying the encoding directly in the file, e.g. by editing 'encoding=' attribute in the XML prolog of XML file, or by changing the corresponding options in Settings | Editor | File Encodings. Inspection ID: LossyEncoding",
+                  "markdown": "Reports characters that cannot be displayed because of the current document encoding.\n\nExamples:\n\n* If you type international characters in a document with the **US-ASCII** charset, some characters will be lost on save.\n* If you load a **UTF-8** -encoded file using the **ISO-8859-1** one-byte charset, some characters will be displayed incorrectly.\n\nYou can fix this by changing the file encoding\neither by specifying the encoding directly in the file, e.g. by editing `encoding=` attribute in the XML prolog of XML file,\nor by changing the corresponding options in **Settings \\| Editor \\| File Encodings**.\n\nInspection ID: LossyEncoding"
                 },
                 "defaultConfiguration": {
-                  "enabled": true,
+                  "enabled": false,
                   "level": "warning",
                   "parameters": {
-                    "suppressToolId": "RegExpRepeatedSpace",
+                    "suppressToolId": "LossyEncoding",
                     "ideaSeverity": "WARNING",
                     "qodanaSeverity": "High",
-                    "codeQualityCategory": "Code Style"
+                    "codeQualityCategory": "Reliability"
                   }
                 },
                 "relationships": [
                   {
                     "target": {
-                      "id": "RegExp",
-                      "index": 8,
+                      "id": "Internationalization",
+                      "index": 17,
                       "toolComponent": {
                         "name": "QDPY"
                       }
@@ -6518,6 +6484,40 @@
                     "ideaSeverity": "WARNING",
                     "qodanaSeverity": "High",
                     "codeQualityCategory": "Performance"
+                  }
+                },
+                "relationships": [
+                  {
+                    "target": {
+                      "id": "RegExp",
+                      "index": 8,
+                      "toolComponent": {
+                        "name": "QDPY"
+                      }
+                    },
+                    "kinds": [
+                      "superset"
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "RegExpRepeatedSpace",
+                "shortDescription": {
+                  "text": "Consecutive spaces"
+                },
+                "fullDescription": {
+                  "text": "Reports multiple consecutive spaces in a RegExp. Because spaces are not visible by default, it can be hard to see how many spaces are required. The RegExp can be made more clear by replacing the consecutive spaces with a single space and a counted quantifier. Example: '(     )' After the quick-fix is applied: '( {5})' New in 2017.1 Inspection ID: RegExpRepeatedSpace",
+                  "markdown": "Reports multiple consecutive spaces in a RegExp. Because spaces are not visible by default, it can be hard to see how many spaces are required. The RegExp can be made more clear by replacing the consecutive spaces with a single space and a counted quantifier.\n\n**Example:**\n\n\n      (     )\n\nAfter the quick-fix is applied:\n\n\n      ( {5})\n\n\nNew in 2017.1\n\nInspection ID: RegExpRepeatedSpace"
+                },
+                "defaultConfiguration": {
+                  "enabled": true,
+                  "level": "warning",
+                  "parameters": {
+                    "suppressToolId": "RegExpRepeatedSpace",
+                    "ideaSeverity": "WARNING",
+                    "qodanaSeverity": "High",
+                    "codeQualityCategory": "Code Style"
                   }
                 },
                 "relationships": [
@@ -6613,7 +6613,7 @@
           },
           {
             "name": "org.jetbrains.plugins.yaml",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "YAMLRecursiveAlias",
@@ -6863,7 +6863,7 @@
           },
           {
             "name": "tanvd.grazi",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "GrazieStyle",
@@ -7045,7 +7045,7 @@
           },
           {
             "name": "com.intellij.modules.json",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "JsonSchemaDeprecation",
@@ -7261,7 +7261,7 @@
           },
           {
             "name": "com.intellij.properties",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "DuplicatePropertyInspection",
@@ -7477,7 +7477,7 @@
           },
           {
             "name": "org.intellij.plugins.markdown",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "MarkdownOutdatedTableOfContents",
@@ -7761,7 +7761,7 @@
           },
           {
             "name": "com.jetbrains.plugins.ini4idea",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "DuplicateKeyInSection",
@@ -7841,7 +7841,7 @@
           },
           {
             "name": "org.toml.lang",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "TomlUnresolvedReference",
@@ -7887,7 +7887,7 @@
           },
           {
             "name": "org.intellij.qodana",
-            "version": "261.24093.0",
+            "version": "261.25883.0",
             "rules": [
               {
                 "id": "CyclomaticComplexityInspection",
@@ -7935,7 +7935,7 @@
       },
       "invocations": [
         {
-          "startTimeUtc": "2026-06-11T11:43:02.819113385Z",
+          "startTimeUtc": "2026-07-05T09:43:58.604705996Z",
           "exitCode": 0,
           "executionSuccessful": true
         }
@@ -7944,8 +7944,8 @@
       "versionControlProvenance": [
         {
           "repositoryUri": "https://github.com/henrikwidlund/hass-oppo.git",
-          "revisionId": "ff3942a82d8855c7d30c2a6053fb2af5dc89abb8",
-          "branch": "main",
+          "revisionId": "dac6928d9b73489ca5d3f5b39173f5f944a43e4f",
+          "branch": "feature/magnetar_support",
           "properties": {
             "repoUrl": "https://github.com/henrikwidlund/hass-oppo.git",
             "lastAuthorName": "Henrik Widlund",
@@ -7962,64 +7962,6 @@
         }
       },
       "results": [
-        {
-          "ruleId": "PyClassHasNoInitInspection",
-          "kind": "fail",
-          "level": "note",
-          "message": {
-            "text": "Class has no __init__ method",
-            "markdown": "Class has no __init__ method"
-          },
-          "locations": [
-            {
-              "physicalLocation": {
-                "artifactLocation": {
-                  "uri": "custom_components/oppo_udp/media_player.py",
-                  "uriBaseId": "SRCROOT"
-                },
-                "region": {
-                  "startLine": 38,
-                  "startColumn": 7,
-                  "charOffset": 1201,
-                  "charLength": 9,
-                  "snippet": {
-                    "text": "_Snapshot"
-                  },
-                  "sourceLanguage": "Python"
-                },
-                "contextRegion": {
-                  "startLine": 36,
-                  "startColumn": 1,
-                  "charOffset": 1183,
-                  "charLength": 83,
-                  "snippet": {
-                    "text": "\n@dataclass\nclass _Snapshot:\n    \"\"\"All entity state populated from the player.\"\"\"\n"
-                  },
-                  "sourceLanguage": "Python"
-                }
-              },
-              "logicalLocations": [
-                {
-                  "fullyQualifiedName": "project",
-                  "kind": "module"
-                }
-              ]
-            }
-          ],
-          "partialFingerprints": {
-            "equalIndicator/v2": "3c3450d376149230",
-            "equalIndicator/v1": "e49a9cbe43888d5e7de7a5ca6d823be2dc37162ffaf4ef40f08fe0129fadb8da"
-          },
-          "baselineState": "unchanged",
-          "properties": {
-            "ideaSeverity": "WEAK WARNING",
-            "qodanaSeverity": "Moderate",
-            "problemType": "REGULAR",
-            "tags": [
-              "Python"
-            ]
-          }
-        },
         {
           "ruleId": "PyInconsistentReturnsInspection",
           "kind": "fail",
@@ -8068,6 +8010,65 @@
             "equalIndicator/v2": "bd07393a52a12df2",
             "equalIndicator/v1": "fef1abdd2d11eb8bee6856328f199baad848c3b7c0ec812e2a3a6332fa6d8522"
           },
+          "baselineState": "unchanged",
+          "properties": {
+            "ideaSeverity": "WEAK WARNING",
+            "qodanaSeverity": "Moderate",
+            "problemType": "REGULAR",
+            "hasFixes": true,
+            "tags": [
+              "Python"
+            ]
+          }
+        },
+        {
+          "ruleId": "PyInconsistentReturnsInspection",
+          "kind": "fail",
+          "level": "note",
+          "message": {
+            "text": "Missing return statement on some paths",
+            "markdown": "Missing return statement on some paths"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "custom_components/oppo_udp/magnetar_client.py",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 134,
+                  "startColumn": 9,
+                  "charOffset": 4756,
+                  "charLength": 22,
+                  "snippet": {
+                    "text": "async with self._lock:"
+                  },
+                  "sourceLanguage": "Python"
+                },
+                "contextRegion": {
+                  "startLine": 132,
+                  "startColumn": 1,
+                  "charOffset": 4680,
+                  "charLength": 192,
+                  "snippet": {
+                    "text": "        is drained only to detect a dropped connection.\n        \"\"\"\n        async with self._lock:\n            if not self._connected and not await self.connect():\n                return False"
+                  },
+                  "sourceLanguage": "Python"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "project",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "equalIndicator/v2": "c72fde10edb2942a",
+            "equalIndicator/v1": "159ca45273d096ebf073587c87986bcf7ed85ee1a82be0491364b7f16212a4bd"
+          },
           "baselineState": "new",
           "properties": {
             "ideaSeverity": "WEAK WARNING",
@@ -8081,11 +8082,11 @@
         }
       ],
       "automationDetails": {
-        "id": "project/qodana/2026-06-11",
-        "guid": "842aa15e-2e0b-4d6b-8ffd-753315409bb8",
+        "id": "project/qodana/2026-07-05",
+        "guid": "64d74097-8b1c-429d-b268-fcbce154dd7f",
         "properties": {
-          "jobUrl": "https://github.com/henrikwidlund/hass-oppo/actions/runs/27344289631",
-          "analysisKind": "regular"
+          "jobUrl": "https://github.com/henrikwidlund/hass-oppo/actions/runs/28736596910",
+          "analysisKind": "incremental"
         }
       },
       "newlineSequences": [

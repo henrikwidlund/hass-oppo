@@ -45,3 +45,35 @@ zoom:
     entity:
       integration: oppo_udp
       domain: media_player
+
+eject:
+  name: Eject
+  description: Toggle the disc tray open or closed.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+fast_forward:
+  name: Fast forward
+  description: Fast forward (cycles through the player's fast-forward speeds).
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+fast_reverse:
+  name: Fast reverse
+  description: Fast reverse (cycles through the player's rewind speeds).
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
+
+power_toggle:
+  name: Toggle power
+  description: Toggle the player between on and standby.
+  target:
+    entity:
+      integration: oppo_udp
+      domain: media_player
