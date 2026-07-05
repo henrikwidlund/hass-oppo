@@ -11,7 +11,17 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT
 
-from .const import CONF_MODEL, DEFAULT_PORT, DOMAIN, MAGNETAR_MODELS, MAGNETAR_PORT, MODEL_UDP203, MODELS
+from .const import (
+    CONF_MODEL,
+    DEFAULT_PORT,
+    DOMAIN,
+    MAGNETAR_MODELS,
+    MAGNETAR_PORT,
+    MODEL_DEFAULT_PORTS,
+    MODEL_UDP203,
+    MODELS,
+    PRE_20X_MODELS,
+)
 from .magnetar_client import MagnetarClient, parse_mac
 from .oppo_client import OppoClient, PowerState
 
@@ -83,8 +93,18 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     async def _async_validate_oppo(user_input: dict[str, Any]) -> dict[str, str]:
-        """Validate an Oppo UDP-20X entry by querying power status."""
-        client = OppoClient(user_input[CONF_HOST], port=user_input[CONF_PORT])
+        """Validate an Oppo entry by querying power status.
+
+        Pre-20X models (BDP-83/93/95/103/105) frame commands with the IP
+        ``REMOTE`` protocol and listen on model-specific ports. When the user
+        leaves the port at the UDP-20X default, substitute the model's port;
+        an explicit value is respected so non-standard setups can override it.
+        """
+        model = user_input[CONF_MODEL]
+        use_remote = model in PRE_20X_MODELS
+        if use_remote and user_input[CONF_PORT] == DEFAULT_PORT:
+            user_input[CONF_PORT] = MODEL_DEFAULT_PORTS[model]
+        client = OppoClient(user_input[CONF_HOST], port=user_input[CONF_PORT], use_remote_framing=use_remote)
         try:
             if await client.connect():
                 power_state = await client.query_power_status()

@@ -59,6 +59,7 @@ class DiscType(StrEnum):
     DVD_AUDIO = "dvd-audio"
     SACD = "sacd"
     CD_AUDIO = "cdda"
+    HDCD = "hdcd"
     DATA_DISC = "data-disc"
     ULTRA_HD_BLURAY = "uhbd"
     NO_DISC = "no-disc"
@@ -143,10 +144,20 @@ def _parse_repeat_query_response(response: str | None) -> RepeatMode:
 class OppoClient:
     """TCP client for Oppo UDP-20X players."""
 
-    def __init__(self, host: str, port: int = DEFAULT_PORT) -> None:
-        """Initialize the client."""
+    def __init__(self, host: str, port: int = DEFAULT_PORT, *, use_remote_framing: bool = False) -> None:
+        """Initialize the client.
+
+        Args:
+            host: Player host / IP address.
+            port: TCP control port.
+            use_remote_framing: When True, frame outbound commands as
+                ``REMOTE <CODE>`` (the pre-20X IP protocol used by BDP-83/9X/10X)
+                instead of the UDP-20X ``#<CODE>\\r`` form. Command codes and all
+                responses/status updates are identical between the two.
+        """
         self._host = host
         self._port = port
+        self._use_remote_framing = use_remote_framing
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._lock = asyncio.Lock()
@@ -320,7 +331,7 @@ class OppoClient:
             self._pending_response = pending_response
             self._pending_command = command
 
-        cmd_bytes = f"#{command}\r".encode("ascii")
+        cmd_bytes = self._frame_command(command)
         try:
             self._writer.write(cmd_bytes)
             await self._writer.drain()
@@ -645,6 +656,7 @@ class OppoClient:
             "DVD-AUDIO": DiscType.DVD_AUDIO,
             "SACD": DiscType.SACD,
             "CDDA": DiscType.CD_AUDIO,
+            "HDCD": DiscType.HDCD,
             "DATA-DISC": DiscType.DATA_DISC,
             "UHBD": DiscType.ULTRA_HD_BLURAY,
             "NO-DISC": DiscType.NO_DISC,
@@ -1071,6 +1083,16 @@ class OppoClient:
             return hours * 3600 + minutes * 60 + seconds
         except ValueError:
             return None
+
+    def _frame_command(self, command: str) -> bytes:
+        """Frame a bare command code for the wire.
+
+        UDP-20X players use ``#<CODE>\\r``; pre-20X players (BDP-83/9X/10X) use
+        the IP ``REMOTE <CODE>`` form (no ``#``, no trailing CR).
+        """
+        if self._use_remote_framing:
+            return f"REMOTE {command}".encode("ascii")
+        return f"#{command}\r".encode("ascii")
 
     @staticmethod
     def _command_code(command: str) -> str:

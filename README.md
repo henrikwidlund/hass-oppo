@@ -1,6 +1,6 @@
 # Oppo UDP-20X Home Assistant Integration
 
-A custom Home Assistant integration for controlling Oppo UDP-203 and UDP-205 4K UHD Blu-Ray players via their TCP/IP control protocol. Magnetar players are also supported (see [Magnetar players](#magnetar-players)).
+A custom Home Assistant integration for controlling Oppo Blu-Ray players via their TCP/IP control protocol. Supported models: BDP-83, BDP-93/95, BDP-103/105 and UDP-203/205. Magnetar players are also supported (see [Magnetar players](#magnetar-players)).
 
 ## Features
 
@@ -40,8 +40,9 @@ Manual installs won’t auto-notify updates-watch the repo if you go this route.
 3. Enter the IP address of your player
 4. Enter the TCP port (default is 23)
 5. Enter a name for the entity (default is "Oppo UDP-203")
-6. Select your model (UDP-203, UDP-205 or Magnetar)
-7. For Magnetar players, enter the player's MAC address (required, used to wake it on power on). Leave the port at the default to use the Magnetar control port (8102) automatically, or set it explicitly to override.
+6. Select your model (BDP-83, BDP-93/95, BDP-103/105, UDP-203, UDP-205 or Magnetar)
+7. Leave the port at the default and the correct port for the selected model is applied automatically (BDP-83: 19999; BDP-93/95/103/105: 48360; UDP-203/205: 23; Magnetar: 8102), or set it explicitly to override.
+8. For Magnetar players, enter the player's MAC address (required, used to wake it on power on).
 
 ### Magnetar players
 
@@ -52,22 +53,40 @@ Magnetar players speak a fire-and-forget network-control protocol on TCP port 81
 - Not available (no protocol support): input source selection, set-volume-to-level, repeat/shuffle, media info, extended state attributes, and real-time streaming updates.
 - A MAC address is required. Power on sends a Wake-on-LAN magic packet before the power command as the players go into sleep mode after being powered off for some time.
 
+### Older Oppo players (BDP-83/93/95/103/105)
+
+These players share the Oppo command codes but use the IP `REMOTE <CODE>` framing on model-specific ports (BDP-83: 19999; BDP-93/95/103/105: 48360). Power, playback, volume (up/down/set/mute), repeat/shuffle and real-time streaming updates all work the same as on the UDP-20X. Some newer capabilities are not present in the older protocol:
+
+- **BDP-83 / BDP-93/95**: no input-source selection.
+- **BDP-103/105**: input-source selection is supported (see below).
+- **All pre-20X**: no aspect-ratio, 3D, HDR or track-name/album/artist metadata (the players don't expose those queries).
+
 ## Requirements
 
-- Oppo UDP-203 / UDP-205, or Magnetar player
+- Oppo BDP-83 / BDP-93/95 / BDP-103/105 / UDP-203 / UDP-205, or Magnetar player
 - Player must be connected to your network
-- The player communicates on TCP port 23 (Oppo) or 8102 (Magnetar)
+- The player communicates on TCP port 23 (UDP-20X), 19999 (BDP-83), 48360 (BDP-93/95/103/105) or 8102 (Magnetar)
 - If you want to power the player on via the integration, enable network in standby in the player's settings
-- Home Assistant `2026.6.3` or newer
+- Home Assistant `2026.7.1` or newer
 - Python `3.14.2` or newer (matches Home Assistant's bundled Python)
 
 ## Protocol
 
-This integration communicates with the player using the Oppo RS-232 and IP Control Protocol over TCP port 23. Commands are sent in the format `#CMD\r` and responses are received as `@OK value\r` or `@ER error\r`.
+This integration communicates with the player using the Oppo RS-232 and IP Control Protocol. UDP-20X players use `#CMD\r` framing on port 23; pre-20X players (BDP-83/93/95/103/105) use the IP `REMOTE CMD` framing on their model-specific ports. In both cases responses are received as `@OK value\r` or `@ER error\r`.
 
 The integration enables verbose mode 3 (detailed unsolicited status updates) so the player pushes state changes - including playback progress - in real-time without polling.
 
 ## Supported Input Sources
+
+### BDP-103/105
+- Blu-Ray Player
+- HDMI Front
+- HDMI Back
+- ARC HDMI Out 1
+- ARC HDMI Out 2
+- Optical
+- Coaxial
+- USB Audio
 
 ### UDP-203
 - Blu-Ray Player
@@ -80,6 +99,8 @@ The integration enables verbose mode 3 (detailed unsolicited status updates) so 
 - Optical
 - Coaxial
 - USB Audio
+
+_BDP-83 and BDP-93/95 have no input-source control._
 
 ## Services
 

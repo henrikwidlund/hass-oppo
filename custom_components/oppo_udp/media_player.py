@@ -23,15 +23,43 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ARC_HDMI_OUT,
+    ARC_HDMI_OUT_1,
+    ARC_HDMI_OUT_2,
+    BLU_RAY_PLAYER,
+    COAXIAL,
     CONF_MAC,
     CONF_MODEL,
     DEFAULT_PORT,
     DOMAIN,
+    HDMI_BACK,
+    HDMI_FRONT,
+    HDMI_IN,
+    INPUT_SOURCES_BDP10X,
     INPUT_SOURCES_UDP203,
     INPUT_SOURCES_UDP205,
     MAGNETAR_MODELS,
     MAGNETAR_PORT,
+    MODEL_BDP10X,
+    MODEL_DEFAULT_PORTS,
+    MODEL_UDP203,
     MODEL_UDP205,
+    OPTICAL,
+    PRE_20X_MODELS,
+    SRC_RESP_ARC_HDMI_OUT,
+    SRC_RESP_ARC_HDMI_OUT_1,
+    SRC_RESP_ARC_HDMI_OUT_2,
+    SRC_RESP_BD_PLAYER,
+    SRC_RESP_COAXIAL,
+    SRC_RESP_COAXIAL_IN,
+    SRC_RESP_HDMI_BACK,
+    SRC_RESP_HDMI_FRONT,
+    SRC_RESP_HDMI_IN,
+    SRC_RESP_OPTICAL,
+    SRC_RESP_OPTICAL_IN,
+    SRC_RESP_USB_AUDIO,
+    SRC_RESP_USB_AUDIO_IN,
+    USB_AUDIO,
 )
 from .magnetar_client import MagnetarClient
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
@@ -91,7 +119,11 @@ _OPPO_TO_HA_REPEAT: dict[RepeatMode, HARepeatMode] = {
 
 _OPPO_SHUFFLE_MODES: frozenset[RepeatMode] = frozenset({RepeatMode.SHUFFLE, RepeatMode.RANDOM})
 
-_AUDIO_DISC_TYPES = frozenset({"cdda", "sacd", "dvd-audio"})
+_AUDIO_DISC_TYPES = frozenset({"cdda", "hdcd", "sacd", "dvd-audio"})
+
+# Only the UDP-20X players expose the aspect-ratio, 3D, HDR and track-metadata
+# queries (QAR/Q3D/QHS/QTN/QTA/QTP).
+_FULL_METADATA_MODELS = frozenset({MODEL_UDP203, MODEL_UDP205})
 
 
 PLAYBACK_TO_STATE = {
@@ -136,8 +168,8 @@ async def async_setup_entry(
         entity = MagnetarMediaPlayer(magnetar_client, name, model, config_entry.entry_id)
     else:
         name = config_entry.data.get(CONF_NAME, "Oppo UDP-20X")
-        port = config_entry.data.get(CONF_PORT, DEFAULT_PORT)
-        client = OppoClient(host, port=port)
+        port = config_entry.data.get(CONF_PORT, MODEL_DEFAULT_PORTS.get(model, DEFAULT_PORT))
+        client = OppoClient(host, port=port, use_remote_framing=model in PRE_20X_MODELS)
         entity = OppoUDPMediaPlayer(client, name, model, config_entry.entry_id)
     async_add_entities([entity])
 
@@ -204,13 +236,17 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # transition can cancel the previous delayed SVM send.
         self._verbose_mode_task: asyncio.Task[None] | None = None
 
-        # Input sources based on model
-        if model == MODEL_UDP205:
-            self._source_list = list(INPUT_SOURCES_UDP205.keys())
-            self._source_map = INPUT_SOURCES_UDP205
-        else:
-            self._source_list = list(INPUT_SOURCES_UDP203.keys())
-            self._source_map = INPUT_SOURCES_UDP203
+        # Input sources per model. BDP-83/93/95 have no input-source control, so
+        # they get an empty map and SELECT_SOURCE is not advertised.
+        source_maps: dict[str, dict[str, int]] = {
+            MODEL_UDP205: INPUT_SOURCES_UDP205,
+            MODEL_UDP203: INPUT_SOURCES_UDP203,
+            MODEL_BDP10X: INPUT_SOURCES_BDP10X,
+        }
+        self._source_map = source_maps.get(model, {})
+        self._source_list = list(self._source_map.keys())
+        # Only UDP-20X players support the aspect-ratio/3D/HDR/track-metadata
+        self._supports_full_metadata = model in _FULL_METADATA_MODELS
 
     @property
     @override
@@ -227,7 +263,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     def supported_features(self) -> MediaPlayerEntityFeature:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the supported features."""
-        return (
+        features = (
             MediaPlayerEntityFeature.TURN_ON
             | MediaPlayerEntityFeature.TURN_OFF
             | MediaPlayerEntityFeature.PLAY
@@ -238,10 +274,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             | MediaPlayerEntityFeature.VOLUME_SET
             | MediaPlayerEntityFeature.VOLUME_STEP
             | MediaPlayerEntityFeature.VOLUME_MUTE
-            | MediaPlayerEntityFeature.SELECT_SOURCE
             | MediaPlayerEntityFeature.REPEAT_SET
             | MediaPlayerEntityFeature.SHUFFLE_SET
         )
+        # BDP-83/93/95 have no input-source control.
+        if self._source_map:
+            features |= MediaPlayerEntityFeature.SELECT_SOURCE
+        return features
 
     @property
     @override
@@ -311,7 +350,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     def media_content_type(self) -> MediaType | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the content type."""
-        if self._snapshot.disc_type in ("cdda", "sacd", "dvd-audio"):
+        if self._snapshot.disc_type in _AUDIO_DISC_TYPES:
             return MediaType.MUSIC
         if self._snapshot.disc_type in ("bd-mv", "dvd-video", "uhbd", "data-disc"):
             return MediaType.VIDEO
@@ -456,9 +495,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if volume is not None:
             snapshot.volume_level = volume / 100.0
 
-        _source, raw = await self._client.query_input_source()
-        if raw:
-            snapshot.current_source = self._map_input_source_response(raw)
+        # BDP-83/93/95 have no input-source query (QIS). Skip it so we don't
+        # send an unsupported command that the player may not answer (which
+        # would stall the rebuild until the command times out).
+        if self._source_map:
+            _, raw = await self._client.query_input_source()
+            if raw:
+                snapshot.current_source = self._map_input_source_response(raw)
 
         snapshot.disc_type = (await self._client.query_disc_type()).value
 
@@ -505,8 +548,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if not elapsed or not remaining:
             return
 
-        # Track metadata (only available/relevant for audio discs)
-        if not is_movie:
+        # Track metadata (only available/relevant for audio discs, and only the
+        # UDP-20X players expose QTN/QTA/QTP).
+        if not is_movie and self._supports_full_metadata:
             snapshot.media_title = await self._client.query_track_name()
             snapshot.media_album = await self._client.query_track_album()
             snapshot.media_artist = await self._client.query_track_performer()
@@ -519,9 +563,10 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if is_movie and (duration := snapshot.media_duration) is not None and duration >= 60:
             snapshot.subtitle_type = await self._client.query_subtitle_type()
 
-        # Video-only attributes — a snapshot rebuild fully refreshes
-        # these fields instead of relying on the next streaming event.
-        if not is_movie:
+        # Video-only attributes (aspect ratio / 3D / HDR) are UDP-20X only — a
+        # snapshot rebuild fully refreshes them instead of relying on the next
+        # streaming event.
+        if not is_movie or not self._supports_full_metadata:
             return
         snapshot.aspect_ratio = await self._client.query_aspect_ratio()
         # 3D is only meaningful on Blu-Ray movie discs.
@@ -904,12 +949,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _map_input_source_response(raw: str) -> str | None:
         """Map a raw input source response to a friendly name."""
         source_response_map = {
-            "0 BD-PLAYER": "Blu-Ray Player",
-            "1 HDMI-IN": "HDMI In",
-            "2 ARC-HDMI-OUT": "ARC HDMI Out",
-            "3 OPTICAL-IN": "Optical",
-            "4 COAXIAL-IN": "Coaxial",
-            "5 USB-AUDIO-IN": "USB Audio",
+            # UDP-20X
+            SRC_RESP_BD_PLAYER: BLU_RAY_PLAYER,
+            SRC_RESP_HDMI_IN: HDMI_IN,
+            SRC_RESP_ARC_HDMI_OUT: ARC_HDMI_OUT,
+            SRC_RESP_OPTICAL_IN: OPTICAL,
+            SRC_RESP_COAXIAL_IN: COAXIAL,
+            SRC_RESP_USB_AUDIO_IN: USB_AUDIO,
+            # BDP-103/105
+            SRC_RESP_HDMI_FRONT: HDMI_FRONT,
+            SRC_RESP_HDMI_BACK: HDMI_BACK,
+            SRC_RESP_ARC_HDMI_OUT_1: ARC_HDMI_OUT_1,
+            SRC_RESP_ARC_HDMI_OUT_2: ARC_HDMI_OUT_2,
+            SRC_RESP_OPTICAL: OPTICAL,
+            SRC_RESP_COAXIAL: COAXIAL,
+            SRC_RESP_USB_AUDIO: USB_AUDIO,
         }
         return source_response_map.get(raw, raw)
 

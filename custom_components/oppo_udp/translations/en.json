@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Oppo / Magnetar Player",
-        "description": "Set up your Oppo UDP-20X or Magnetar Blu-Ray player.",
+        "description": "Set up your Oppo or Magnetar Blu-Ray player.",
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
@@ -12,7 +12,7 @@
           "mac": "MAC address (Magnetar only)"
         },
         "data_description": {
-          "port": "Oppo players use 23. Magnetar players use 8102 — leave this at the default and it will be applied automatically, or set it explicitly to override.",
+          "port": "UDP-203/205 use 23, BDP-83 uses 19999, BDP-93/95/103/105 use 48360, Magnetar uses 8102. Leave this at the default and the correct port for the selected model is applied automatically, or set it explicitly to override.",
           "mac": "Required for Magnetar players; used to wake the player on power on. Ignored for Oppo players."
         }
       }
@@ -37,6 +37,7 @@
               "dvd-audio": "DVD Audio",
               "sacd": "SACD",
               "cdda": "CD Audio",
+              "hdcd": "HDCD",
               "data-disc": "Data Disc",
               "uhbd": "Ultra HD Blu-Ray",
               "no-disc": "No Disc",
