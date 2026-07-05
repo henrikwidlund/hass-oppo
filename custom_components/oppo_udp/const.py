@@ -50,30 +50,59 @@ MODEL_DEFAULT_PORTS = {
     MODEL_UDP205: DEFAULT_PORT,
 }
 
+# Input source display names
+BLU_RAY_PLAYER = "Blu-Ray Player"
+HDMI_IN = "HDMI In"
+ARC_HDMI_OUT = "ARC HDMI Out"
+OPTICAL = "Optical"
+COAXIAL = "Coaxial"
+USB_AUDIO = "USB Audio"
+# BDP-103/105 input source display names
+HDMI_FRONT = "HDMI Front"
+HDMI_BACK = "HDMI Back"
+ARC_HDMI_OUT_1 = "ARC HDMI Out 1"
+ARC_HDMI_OUT_2 = "ARC HDMI Out 2"
+
+# Raw input-source response tokens returned by QIS/SIS (UDP-20X)
+SRC_RESP_BD_PLAYER = "0 BD-PLAYER"
+SRC_RESP_HDMI_IN = "1 HDMI-IN"
+SRC_RESP_ARC_HDMI_OUT = "2 ARC-HDMI-OUT"
+SRC_RESP_OPTICAL_IN = "3 OPTICAL-IN"
+SRC_RESP_COAXIAL_IN = "4 COAXIAL-IN"
+SRC_RESP_USB_AUDIO_IN = "5 USB-AUDIO-IN"
+# Raw input-source response tokens returned by QIS/SIS (BDP-103/105)
+SRC_RESP_HDMI_FRONT = "1 HDMI-FRONT"
+SRC_RESP_HDMI_BACK = "2 HDMI-BACK"
+SRC_RESP_ARC_HDMI_OUT_1 = "3 ARC-HDMI-OUT1"
+SRC_RESP_ARC_HDMI_OUT_2 = "4 ARC-HDMI-OUT2"
+SRC_RESP_OPTICAL = "5 OPTICAL"
+SRC_RESP_COAXIAL = "6 COAXIAL"
+SRC_RESP_USB_AUDIO = "7 USB-AUDIO"
+
 # Input sources per model
 INPUT_SOURCES_UDP203 = {
-    "Blu-Ray Player": 0,
-    "HDMI In": 1,
-    "ARC HDMI Out": 2,
+    BLU_RAY_PLAYER: 0,
+    HDMI_IN: 1,
+    ARC_HDMI_OUT: 2,
 }
 
 INPUT_SOURCES_UDP205 = {
-    "Blu-Ray Player": 0,
-    "HDMI In": 1,
-    "Optical": 3,
-    "Coaxial": 4,
-    "USB Audio": 5,
+    BLU_RAY_PLAYER: 0,
+    HDMI_IN: 1,
+    OPTICAL: 3,
+    COAXIAL: 4,
+    USB_AUDIO: 5,
 }
 
 # BDP-103/105 input sources (SIS digit values). BDP-83/93/95 have no
 # input-source query/select support.
 INPUT_SOURCES_BDP10X = {
-    "Blu-Ray Player": 0,
-    "HDMI Front": 1,
-    "HDMI Back": 2,
-    "ARC HDMI Out 1": 3,
-    "ARC HDMI Out 2": 4,
-    "Optical": 5,
-    "Coaxial": 6,
-    "USB Audio": 7,
+    BLU_RAY_PLAYER: 0,
+    HDMI_FRONT: 1,
+    HDMI_BACK: 2,
+    ARC_HDMI_OUT_1: 3,
+    ARC_HDMI_OUT_2: 4,
+    OPTICAL: 5,
+    COAXIAL: 6,
+    USB_AUDIO: 7,
 }

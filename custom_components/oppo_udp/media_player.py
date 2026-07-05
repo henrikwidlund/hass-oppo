@@ -23,10 +23,18 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ARC_HDMI_OUT,
+    ARC_HDMI_OUT_1,
+    ARC_HDMI_OUT_2,
+    BLU_RAY_PLAYER,
+    COAXIAL,
     CONF_MAC,
     CONF_MODEL,
     DEFAULT_PORT,
     DOMAIN,
+    HDMI_BACK,
+    HDMI_FRONT,
+    HDMI_IN,
     INPUT_SOURCES_BDP10X,
     INPUT_SOURCES_UDP203,
     INPUT_SOURCES_UDP205,
@@ -36,7 +44,22 @@ from .const import (
     MODEL_DEFAULT_PORTS,
     MODEL_UDP203,
     MODEL_UDP205,
+    OPTICAL,
     PRE_20X_MODELS,
+    SRC_RESP_ARC_HDMI_OUT,
+    SRC_RESP_ARC_HDMI_OUT_1,
+    SRC_RESP_ARC_HDMI_OUT_2,
+    SRC_RESP_BD_PLAYER,
+    SRC_RESP_COAXIAL,
+    SRC_RESP_COAXIAL_IN,
+    SRC_RESP_HDMI_BACK,
+    SRC_RESP_HDMI_FRONT,
+    SRC_RESP_HDMI_IN,
+    SRC_RESP_OPTICAL,
+    SRC_RESP_OPTICAL_IN,
+    SRC_RESP_USB_AUDIO,
+    SRC_RESP_USB_AUDIO_IN,
+    USB_AUDIO,
 )
 from .magnetar_client import MagnetarClient
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
@@ -927,20 +950,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Map a raw input source response to a friendly name."""
         source_response_map = {
             # UDP-20X
-            "0 BD-PLAYER": "Blu-Ray Player",
-            "1 HDMI-IN": "HDMI In",
-            "2 ARC-HDMI-OUT": "ARC HDMI Out",
-            "3 OPTICAL-IN": "Optical",
-            "4 COAXIAL-IN": "Coaxial",
-            "5 USB-AUDIO-IN": "USB Audio",
+            SRC_RESP_BD_PLAYER: BLU_RAY_PLAYER,
+            SRC_RESP_HDMI_IN: HDMI_IN,
+            SRC_RESP_ARC_HDMI_OUT: ARC_HDMI_OUT,
+            SRC_RESP_OPTICAL_IN: OPTICAL,
+            SRC_RESP_COAXIAL_IN: COAXIAL,
+            SRC_RESP_USB_AUDIO_IN: USB_AUDIO,
             # BDP-103/105
-            "1 HDMI-FRONT": "HDMI Front",
-            "2 HDMI-BACK": "HDMI Back",
-            "3 ARC-HDMI-OUT1": "ARC HDMI Out 1",
-            "4 ARC-HDMI-OUT2": "ARC HDMI Out 2",
-            "5 OPTICAL": "Optical",
-            "6 COAXIAL": "Coaxial",
-            "7 USB-AUDIO": "USB Audio",
+            SRC_RESP_HDMI_FRONT: HDMI_FRONT,
+            SRC_RESP_HDMI_BACK: HDMI_BACK,
+            SRC_RESP_ARC_HDMI_OUT_1: ARC_HDMI_OUT_1,
+            SRC_RESP_ARC_HDMI_OUT_2: ARC_HDMI_OUT_2,
+            SRC_RESP_OPTICAL: OPTICAL,
+            SRC_RESP_COAXIAL: COAXIAL,
+            SRC_RESP_USB_AUDIO: USB_AUDIO,
         }
         return source_response_map.get(raw, raw)
 
