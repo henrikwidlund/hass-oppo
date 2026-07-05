@@ -157,6 +157,10 @@ _ENTITY_SERVICES: tuple[tuple[str, str], ...] = (
     ("audio_language_toggle", "async_audio_language_toggle"),
     ("subtitle_toggle", "async_subtitle_toggle"),
     ("zoom", "async_zoom"),
+    ("eject", "async_eject"),
+    ("fast_forward", "async_fast_forward"),
+    ("fast_reverse", "async_fast_reverse"),
+    ("power_toggle", "async_power_toggle"),
 )
 
 
@@ -1078,6 +1082,28 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Cycle zoom / aspect-ratio mode."""
         await self._client.zoom()
 
+    async def async_eject(self) -> None:
+        """Toggle the disc tray open/closed."""
+        await self._client.eject_toggle()
+
+    async def async_fast_forward(self) -> None:
+        """Fast forward (cycles through the player's FF speeds)."""
+        await self._client.fast_forward()
+
+    async def async_fast_reverse(self) -> None:
+        """Fast reverse (cycles through the player's rewind speeds)."""
+        await self._client.fast_reverse()
+
+    async def async_power_toggle(self) -> None:
+        """Toggle power, mirroring turn_on/turn_off bookkeeping."""
+        new_state = await self._client.power_toggle()
+        if new_state == PowerState.ON:
+            self._schedule_ensure_verbose_mode()
+        elif new_state == PowerState.OFF:
+            self._cancel_verbose_mode_task()
+            self._snapshot = _Snapshot(power_state=PowerState.OFF)
+            self.async_write_ha_state()
+
     @override
     async def async_set_repeat(self, repeat: HARepeatMode) -> None:
         """Set repeat mode (clears shuffle on the player)."""
@@ -1348,3 +1374,27 @@ class MagnetarMediaPlayer(MediaPlayerEntity):
     async def async_zoom(self) -> None:
         """Cycle zoom / aspect-ratio mode."""
         self._after_command(await self._client.zoom())
+
+    async def async_eject(self) -> None:
+        """Toggle the disc tray open/closed."""
+        self._after_command(await self._client.eject_toggle())
+
+    async def async_fast_forward(self) -> None:
+        """Fast forward (cycles through the player's FF speeds)."""
+        self._after_command(await self._client.fast_forward())
+
+    async def async_fast_reverse(self) -> None:
+        """Fast reverse (cycles through the player's rewind speeds)."""
+        self._after_command(await self._client.fast_reverse())
+
+    async def async_power_toggle(self) -> None:
+        """Toggle power optimistically (the player reports no power state)."""
+        ok = await self._client.power_toggle()
+        if ok:
+            if self._power_state == PowerState.ON:
+                self._power_state = PowerState.OFF
+                self._playback_status = PlaybackStatus.UNKNOWN
+            else:
+                self._power_state = PowerState.ON
+                self._playback_status = PlaybackStatus.STOP
+        self._after_command(ok)

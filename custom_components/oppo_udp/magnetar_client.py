@@ -104,7 +104,7 @@ class MagnetarClient:
         """Close the control connection."""
         await self._teardown_connection()
 
-    def send_wake_on_lan(self) -> bool:
+    async def send_wake_on_lan(self) -> bool:
         """Broadcast a Wake-on-LAN magic packet to the configured MAC.
 
         Returns False on a malformed MAC or send error —
@@ -116,9 +116,16 @@ class MagnetarClient:
             return False
         packet = _build_magic_packet(mac_bytes)
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                sock.sendto(packet, ("255.255.255.255", _WOL_PORT))
+            loop = asyncio.get_running_loop()
+            transport, _ = await loop.create_datagram_endpoint(
+                asyncio.DatagramProtocol,
+                remote_addr=("255.255.255.255", _WOL_PORT),
+                allow_broadcast=True,
+            )
+            try:
+                transport.sendto(packet)
+            finally:
+                transport.close()
         except OSError:
             _LOGGER.debug("Failed to send Wake-on-LAN packet", exc_info=True)
             return False
@@ -158,7 +165,7 @@ class MagnetarClient:
 
     async def power_on(self) -> bool:
         """Wake the player (WOL) and send Power On."""
-        self.send_wake_on_lan()
+        await self.send_wake_on_lan()
         return await self._send_command("PON")
 
     async def power_off(self) -> bool:
@@ -167,7 +174,7 @@ class MagnetarClient:
 
     async def power_toggle(self) -> bool:
         """Wake the player (WOL) and toggle power/standby."""
-        self.send_wake_on_lan()
+        await self.send_wake_on_lan()
         return await self._send_command("POW")
 
     # --- Playback ---

@@ -41,7 +41,7 @@ Manual installs won’t auto-notify updates-watch the repo if you go this route.
 4. Enter the TCP port (default is 23)
 5. Enter a name for the entity (default is "Oppo UDP-203")
 6. Select your model (UDP-203, UDP-205 or Magnetar)
-7. For Magnetar players, enter the player's MAC address (required, used to wake it on power on). The port is fixed at 8102.
+7. For Magnetar players, enter the player's MAC address (required, used to wake it on power on). Leave the port at the default to use the Magnetar control port (8102) automatically, or set it explicitly to override.
 
 ### Magnetar players
 
@@ -93,6 +93,10 @@ The integration exposes the following services. All take an entity target.
 | `oppo_udp.audio_language_toggle` | Cycle to the next audio language or channel               |
 | `oppo_udp.subtitle_toggle`       | Cycle to the next subtitle language                       |
 | `oppo_udp.zoom`                  | Cycle zoom / aspect-ratio mode                            |
+| `oppo_udp.eject`                 | Toggle the disc tray open or closed                       |
+| `oppo_udp.fast_forward`          | Fast forward (cycles through the fast-forward speeds)     |
+| `oppo_udp.fast_reverse`          | Fast reverse (cycles through the rewind speeds)           |
+| `oppo_udp.power_toggle`          | Toggle the player between on and standby                  |
 
 Example:
 

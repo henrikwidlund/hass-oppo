@@ -103,16 +103,19 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_validate_magnetar(user_input: dict[str, Any]) -> dict[str, str]:
         """Validate a Magnetar entry: require a MAC and confirm the port opens.
 
-        Magnetar players listen on a fixed control port and answer commands
-        with ``ack`` only — there is no query to confirm identity, so a
-        successful TCP connection is the strongest check available. The port is
-        forced to the Magnetar default regardless of the value in the form.
+        Magnetar players answer commands with ``ack`` only — there is no query
+        to confirm identity, so a successful TCP connection is the strongest
+        check available. The port defaults to the Magnetar control port (8102)
+        when the user leaves the Oppo default untouched, but any explicit value
+        is respected so non-standard setups can override it.
         """
         if parse_mac(user_input.get(CONF_MAC, "")) is None:
             return {CONF_MAC: "invalid_mac"}
 
-        user_input[CONF_PORT] = MAGNETAR_PORT
-        client = MagnetarClient(user_input[CONF_HOST], user_input[CONF_MAC], port=MAGNETAR_PORT)
+        if user_input[CONF_PORT] == DEFAULT_PORT:
+            user_input[CONF_PORT] = MAGNETAR_PORT
+        port = user_input[CONF_PORT]
+        client = MagnetarClient(user_input[CONF_HOST], user_input[CONF_MAC], port=port)
         try:
             if await client.connect():
                 return {}
