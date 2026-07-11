@@ -8,5 +8,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/henrikwidlund/hass-oppo/issues",
   "requirements": [],
-  "version": "0.0.3-preview1"
+  "version": "0.0.3-preview3"
 }
