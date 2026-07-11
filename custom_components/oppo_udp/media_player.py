@@ -1,4 +1,4 @@
-"""Media player platform for Oppo UDP-20X."""
+"""Media player platform for Oppo/Magnetar Blu-ray Players."""
 
 from __future__ import annotations
 
@@ -155,7 +155,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Oppo UDP-20X media player from a config entry."""
+    """Set up the Oppo/Magnetar media player from a config entry."""
     host = config_entry.data[CONF_HOST]
     model = config_entry.data.get(CONF_MODEL, "UDP-203")
 
@@ -197,7 +197,7 @@ _ENTITY_SERVICES: tuple[tuple[str, str], ...] = (
 
 
 class OppoUDPMediaPlayer(MediaPlayerEntity):
-    """Representation of an Oppo UDP-20X media player."""
+    """Representation of an Oppo/Magnetar media player."""
 
     _attr_has_entity_name = True
     _attr_name = None
@@ -211,7 +211,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         model: str,
         entry_id: str,
     ) -> None:
-        """Initialize the Oppo UDP-20X media player."""
+        """Initialize the Oppo/Magnetar media player."""
         self._client = client
         self._name = name
         self._attr_unique_id = f"oppo_udp_{entry_id}"

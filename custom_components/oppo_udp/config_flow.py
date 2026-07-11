@@ -1,4 +1,4 @@
-"""Config flow for Oppo UDP-20X integration."""
+"""Config flow for Oppo/Magnetar integration."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def _normalize_host(host: str) -> str:
 
 
 class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Oppo UDP-20X."""
+    """Handle a config flow for Blu-ray player."""
 
     VERSION = 1
 

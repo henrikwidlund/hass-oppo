@@ -1,4 +1,4 @@
-"""Constants for the Oppo UDP-20X integration."""
+"""Constants for the Oppo/Magnetar integration."""
 
 DOMAIN = "oppo_udp"
 

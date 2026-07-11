@@ -1,4 +1,4 @@
-"""The Oppo UDP-20X integration."""
+"""The Oppo/Magnetar integration."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ PLATFORMS: list[Platform] = [Platform.MEDIA_PLAYER]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Oppo UDP-20X from a config entry."""
+    """Set up Blu-ray player from a config entry."""
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

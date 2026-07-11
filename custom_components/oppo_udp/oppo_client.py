@@ -1,4 +1,4 @@
-"""TCP client for communicating with the Oppo UDP-20X player."""
+"""TCP client for communicating with the Oppo player."""
 
 from __future__ import annotations
 
@@ -142,7 +142,7 @@ def _parse_repeat_query_response(response: str | None) -> RepeatMode:
 
 
 class OppoClient:
-    """TCP client for Oppo UDP-20X players."""
+    """TCP client for Oppo players."""
 
     def __init__(self, host: str, port: int = DEFAULT_PORT, *, use_remote_framing: bool = False) -> None:
         """Initialize the client.

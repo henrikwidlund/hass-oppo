@@ -1,6 +1,6 @@
 """TCP client for communicating with Magnetar players.
 
-Unlike the Oppo UDP-20X protocol, the Magnetar network-control interface is
+Unlike the Oppo protocol, the Magnetar network-control interface is
 fire-and-forget: every command is answered with the literal string ``ack`` and
 the player exposes no query or unsolicited-status ("verbose") support. All
 entity state is therefore tracked optimistically by the caller.
