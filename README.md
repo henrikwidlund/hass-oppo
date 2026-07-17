@@ -48,7 +48,8 @@ Manual installs won’t auto-notify updates-watch the repo if you go this route.
 
 Magnetar players speak a fire-and-forget network-control protocol on TCP port 8102: every command is acknowledged with `ack` and the player reports **no** power, playback or volume state. As a result:
 
-- State shown in Home Assistant is **optimistic** — derived from the commands the integration sends, not read back from the player.
+- State shown in Home Assistant is **optimistic** (assumed) — derived from the commands the integration sends, not read back from the player. The entity is flagged as `assumed_state`, and the last assumed state is restored across Home Assistant restarts.
+- Changes made outside Home Assistant (IR remote, front panel) are **not** detected, so the shown state can drift from reality until the next command is sent from Home Assistant.
 - Supported features: power on/off, play, pause, stop, next/previous, volume up/down, mute, plus the custom services below.
 - Not available (no protocol support): input source selection, set-volume-to-level, repeat/shuffle, media info, extended state attributes, and real-time streaming updates.
 - A MAC address is required. Power on sends a Wake-on-LAN magic packet before the power command as the players go into sleep mode after being powered off for some time.

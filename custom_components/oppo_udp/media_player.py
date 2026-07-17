@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
@@ -16,10 +17,11 @@ from homeassistant.components.media_player import (
     RepeatMode as HARepeatMode,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
-from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, State, callback
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -1193,19 +1195,22 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
 
-class MagnetarMediaPlayer(MediaPlayerEntity):
+class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     """Representation of a Magnetar player.
 
     The Magnetar network-control protocol is fire-and-forget: commands are
     acknowledged with ``ack`` and the player reports no power, playback or
     volume state. All state shown here is therefore optimistic — updated from
-    the commands we send, not from the player.
+    the commands we send, not from the player. ``assumed_state`` tells Home
+    Assistant the state is not confirmed (the UI then shows discrete on/off
+    controls), and the last assumed state is restored across restarts.
     """
 
     _attr_has_entity_name = True
     _attr_name = None
     _attr_should_poll = False
     _attr_translation_key = "magnetar"
+    _attr_assumed_state = True
 
     def __init__(
         self,
@@ -1223,7 +1228,6 @@ class MagnetarMediaPlayer(MediaPlayerEntity):
         self._power_state = PowerState.UNKNOWN
         self._playback_status = PlaybackStatus.UNKNOWN
         self._is_muted = False
-        self._unsub_reconnect: CALLBACK_TYPE | None = None
 
     @property
     @override
@@ -1260,8 +1264,14 @@ class MagnetarMediaPlayer(MediaPlayerEntity):
     @property
     @override
     def available(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
-        """Return if the control connection is currently open."""
-        return self._client.connected
+        """Always available.
+
+        The player gives no reachability signal, and power-on races the socket:
+        a deep-sleeping player takes ~30s to accept TCP after Wake-on-LAN. Tying
+        availability to the live connection would hide the (correct) optimistic
+        state we set on power-on. Commands open the connection on demand.
+        """
+        return True
 
     @property
     @override
@@ -1281,174 +1291,161 @@ class MagnetarMediaPlayer(MediaPlayerEntity):
 
     @override
     async def async_added_to_hass(self) -> None:
-        """Run when entity is added to hass."""
+        """Run when entity is added to hass.
+
+        The player reports no state, so restore the last assumed state we wrote
+        before this restart rather than starting from ``unknown``. The socket
+        is opened best-effort; commands reconnect on demand if it fails.
+        """
         await super().async_added_to_hass()
-        await self._ensure_connected()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._restore_state(last_state)
+        await self._client.connect()
+        self.async_write_ha_state()
+
+    def _restore_state(self, last_state: State) -> None:
+        """Restore optimistic state from the previous run."""
+        if last_state.state == MediaPlayerState.OFF:
+            self._power_state = PowerState.OFF
+        elif last_state.state in (
+            MediaPlayerState.PLAYING,
+            MediaPlayerState.PAUSED,
+            MediaPlayerState.IDLE,
+            MediaPlayerState.ON,
+        ):
+            self._power_state = PowerState.ON
+            self._playback_status = {
+                MediaPlayerState.PLAYING: PlaybackStatus.PLAY,
+                MediaPlayerState.PAUSED: PlaybackStatus.PAUSE,
+            }.get(last_state.state, PlaybackStatus.STOP)
+        muted = last_state.attributes.get(ATTR_MEDIA_VOLUME_MUTED)
+        if isinstance(muted, bool):
+            self._is_muted = muted
 
     @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
-        self._reconnect_cancel()
         await self._client.disconnect()
 
-    async def _ensure_connected(self) -> None:
-        """Open the connection, scheduling a retry on failure."""
-        if await self._client.connect():
-            self._reconnect_cancel()
-            self.async_write_ha_state()
-            return
-        self._schedule_reconnect()
-
-    def _schedule_reconnect(self) -> None:
-        """Schedule a reconnection attempt."""
-        self._reconnect_cancel()
-        self._unsub_reconnect = async_call_later(
-            self.hass,
-            _RECONNECT_INTERVAL,
-            HassJob(self._reconnect_callback),
-        )
-
-    def _reconnect_cancel(self) -> None:
-        """Cancel any pending reconnection."""
-        if self._unsub_reconnect is not None:
-            self._unsub_reconnect()
-            self._unsub_reconnect = None
-
-    async def _reconnect_callback(self, _now: datetime) -> None:
-        """Attempt to reconnect."""
-        self._unsub_reconnect = None
-        if not self._client.connected:
-            await self._ensure_connected()
-
-    def _after_command(self, ok: bool) -> None:  # noqa: FBT001
-        """React to a command result: recover availability or reconnect.
-
-        Always writes state (optimistic fields may have changed); on failure
-        the connection has dropped, so also schedule a reconnect.
-        """
+    def _set_power(self, power: PowerState, playback: PlaybackStatus) -> None:
+        """Set the assumed power/playback state and push it to Home Assistant."""
+        self._power_state = power
+        self._playback_status = playback
         self.async_write_ha_state()
-        if not ok:
-            self._schedule_reconnect()
 
     # --- Commands ---
+    #
+    # The player never reports state, so it is tracked optimistically. The
+    # fire-and-forget power semantics (Wake-on-LAN, ignoring the send result)
+    # live in ``MagnetarClient``, which returns the assumed ``PowerState``; the
+    # entity just reflects it. Playback and mute, by contrast, are only
+    # meaningful when the player is reachable, so they reflect the send result.
 
     @override
     async def async_turn_on(self) -> None:
-        """Wake the player and turn it on."""
-        ok = await self._client.power_on()
-        if ok:
-            self._power_state = PowerState.ON
-            self._playback_status = PlaybackStatus.STOP
-        self._after_command(ok)
+        """Turn the player on (state is assumed — see MagnetarClient)."""
+        self._set_power(await self._client.power_on(), PlaybackStatus.STOP)
 
     @override
     async def async_turn_off(self) -> None:
-        """Turn the player off."""
-        ok = await self._client.power_off()
-        if ok:
-            self._power_state = PowerState.OFF
-            self._playback_status = PlaybackStatus.UNKNOWN
-        self._after_command(ok)
+        """Turn the player off (state is assumed)."""
+        self._set_power(await self._client.power_off(), PlaybackStatus.UNKNOWN)
+
+    async def async_power_toggle(self) -> None:
+        """Toggle power.
+
+        Direction is resolved from the last assumed state (restored across
+        restarts); from off/unknown this wakes the player like ``turn_on``.
+        """
+        if self._power_state == PowerState.ON:
+            self._set_power(await self._client.power_off(), PlaybackStatus.UNKNOWN)
+        else:
+            self._set_power(await self._client.power_on(), PlaybackStatus.STOP)
 
     @override
     async def async_media_play(self) -> None:
-        """Send play command."""
-        ok = await self._client.play()
-        if ok:
+        """Start playback, reflecting whether the command was sent."""
+        if await self._client.play():
             self._power_state = PowerState.ON
             self._playback_status = PlaybackStatus.PLAY
-        self._after_command(ok)
+            self.async_write_ha_state()
 
     @override
     async def async_media_pause(self) -> None:
-        """Send pause command."""
-        ok = await self._client.pause()
-        if ok:
+        """Pause playback, reflecting whether the command was sent."""
+        if await self._client.pause():
             self._playback_status = PlaybackStatus.PAUSE
-        self._after_command(ok)
+            self.async_write_ha_state()
 
     @override
     async def async_media_stop(self) -> None:
-        """Send stop command."""
-        ok = await self._client.stop()
-        if ok:
+        """Stop playback, reflecting whether the command was sent."""
+        if await self._client.stop():
             self._playback_status = PlaybackStatus.STOP
-        self._after_command(ok)
+            self.async_write_ha_state()
 
     @override
     async def async_media_next_track(self) -> None:
         """Send next track command."""
-        self._after_command(await self._client.next_track())
+        await self._client.next_track()
 
     @override
     async def async_media_previous_track(self) -> None:
         """Send previous track command."""
-        self._after_command(await self._client.previous_track())
+        await self._client.previous_track()
 
     @override
     async def async_volume_up(self) -> None:
         """Raise volume by one step."""
-        self._after_command(await self._client.volume_up())
+        await self._client.volume_up()
 
     @override
     async def async_volume_down(self) -> None:
         """Lower volume by one step."""
-        self._after_command(await self._client.volume_down())
+        await self._client.volume_down()
 
     @override
     async def async_mute_volume(self, mute: bool) -> None:
         """Toggle mute (blind — the player reports no mute state)."""
         if mute == self._is_muted:
             return
-        ok = await self._client.mute_toggle()
-        if ok:
+        if await self._client.mute_toggle():
             self._is_muted = mute
-        self._after_command(ok)
+            self.async_write_ha_state()
 
     async def async_dimmer(self) -> None:
         """Cycle the front-panel dimmer."""
-        self._after_command(await self._client.dimmer())
+        await self._client.dimmer()
 
     async def async_pure_audio_toggle(self) -> None:
         """Toggle Pure Tone mode."""
-        self._after_command(await self._client.pure_audio_toggle())
+        await self._client.pure_audio_toggle()
 
     async def async_info_toggle(self) -> None:
         """Show/hide on-screen display."""
-        self._after_command(await self._client.info_toggle())
+        await self._client.info_toggle()
 
     async def async_audio_language_toggle(self) -> None:
         """Cycle audio language/channel."""
-        self._after_command(await self._client.audio_language_toggle())
+        await self._client.audio_language_toggle()
 
     async def async_subtitle_toggle(self) -> None:
         """Cycle subtitle language."""
-        self._after_command(await self._client.subtitle_toggle())
+        await self._client.subtitle_toggle()
 
     async def async_zoom(self) -> None:
         """Cycle zoom / aspect-ratio mode."""
-        self._after_command(await self._client.zoom())
+        await self._client.zoom()
 
     async def async_eject(self) -> None:
         """Toggle the disc tray open/closed."""
-        self._after_command(await self._client.eject_toggle())
+        await self._client.eject_toggle()
 
     async def async_fast_forward(self) -> None:
         """Fast forward (cycles through the player's FF speeds)."""
-        self._after_command(await self._client.fast_forward())
+        await self._client.fast_forward()
 
     async def async_fast_reverse(self) -> None:
         """Fast reverse (cycles through the player's rewind speeds)."""
-        self._after_command(await self._client.fast_reverse())
-
-    async def async_power_toggle(self) -> None:
-        """Toggle power optimistically (the player reports no power state)."""
-        ok = await self._client.power_toggle()
-        if ok:
-            if self._power_state == PowerState.ON:
-                self._power_state = PowerState.OFF
-                self._playback_status = PlaybackStatus.UNKNOWN
-            else:
-                self._power_state = PowerState.ON
-                self._playback_status = PlaybackStatus.STOP
-        self._after_command(ok)
+        await self._client.fast_reverse()

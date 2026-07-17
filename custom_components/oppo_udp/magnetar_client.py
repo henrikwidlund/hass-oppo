@@ -17,6 +17,7 @@ import re
 import socket
 
 from .const import MAGNETAR_PORT
+from .oppo_client import PowerState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -162,20 +163,23 @@ class MagnetarClient:
             return True
 
     # --- Power ---
+    #
+    # Power commands are fire-and-forget: Wake-on-LAN powers the player up, and
+    # the follow-up command's result is ignored on purpose. A deep-sleeping
+    # player takes ~30s before it accepts TCP (so the send may fail even though
+    # WoL is waking it), and an already-on player returns nothing meaningful.
+    # Either way the assumed resulting PowerState is returned.
 
-    async def power_on(self) -> bool:
-        """Wake the player (WOL) and send Power On."""
+    async def power_on(self) -> PowerState:
+        """Wake the player (WoL) and turn it on. Returns the assumed state."""
         await self.send_wake_on_lan()
-        return await self._send_command("PON")
+        await self._send_command("PON")
+        return PowerState.ON
 
-    async def power_off(self) -> bool:
-        """Send Power Off."""
-        return await self._send_command("POF")
-
-    async def power_toggle(self) -> bool:
-        """Wake the player (WOL) and toggle power/standby."""
-        await self.send_wake_on_lan()
-        return await self._send_command("POW")
+    async def power_off(self) -> PowerState:
+        """Turn the player off. Returns the assumed state."""
+        await self._send_command("POF")
+        return PowerState.OFF
 
     # --- Playback ---
 
