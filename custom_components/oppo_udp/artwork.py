@@ -144,7 +144,8 @@ class AlbumArtworkService:
             _LOGGER.debug("Error querying MusicBrainz: %s", url, exc_info=True)
             return None
 
-    async def _check_cover_art(self, session: aiohttp.ClientSession, release_id: str) -> str | None:
+    @staticmethod
+    async def _check_cover_art(session: aiohttp.ClientSession, release_id: str) -> str | None:
         url = f"{_CAA_BASE}/{release_id}/front-500"
         try:
             async with session.get(
