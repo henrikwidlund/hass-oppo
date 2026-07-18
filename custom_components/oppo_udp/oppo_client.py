@@ -369,7 +369,7 @@ class OppoClient:
 
         try:
             data = await self._reader.readuntil(b"\r")
-            response = data.decode("ascii").strip()
+            response = data.decode("latin-1").strip()
             _LOGGER.debug("Received response: %s", response)
 
             # Handle streaming format: @CMD OK/ER ...
@@ -864,7 +864,7 @@ class OppoClient:
                 # Per-frame parse errors must not tear down the socket — they
                 # affect a single message at most. Log and keep reading.
                 try:
-                    frame = data.decode("ascii").strip()
+                    frame = data.decode("latin-1").strip()
                     if not frame:
                         continue
 
