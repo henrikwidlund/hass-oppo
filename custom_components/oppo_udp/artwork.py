@@ -51,6 +51,17 @@ class AlbumArtworkService:
         if not artist or (not album and not track):
             return None
 
+        # Oppo sometimes packs artist+album into the album field: "ARTIST   ALBUM".  Strip the
+        # prefix so MusicBrainz queries get just the album title.
+        if album:
+            upper_artist = artist.upper()
+            upper_album = album.upper()
+            if upper_album.startswith(upper_artist) and album[len(artist):].startswith("   "):
+                album = album[len(artist) + 3:]
+
+        if not album and not track:
+            return None
+
         cache_key: tuple[str | None, ...] = (artist, album) if album else (artist, None, track)
         now = time.monotonic()
         if cache_key in self._cache:
