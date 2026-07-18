@@ -424,9 +424,6 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         await super().async_added_to_hass()
         if self._supports_full_metadata:
             self._artwork_service = AlbumArtworkService(self.hass)
-            _LOGGER.warning("Artwork service created for %s (model=%s)", self._client.host, self._model)
-        else:
-            _LOGGER.warning("Artwork service NOT created for %s (model=%s, supports_full_metadata=False)", self._client.host, self._model)
         await self._connect_and_stream()
 
     @override
@@ -1130,12 +1127,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     async def async_media_play(self) -> None:
         """Send play command."""
-        await self._client.play_pause_toggle(self._snapshot.playback_status == PlaybackStatus.PLAY)
+        await self._client.play_pause_toggle(playing=self._snapshot.playback_status == PlaybackStatus.PLAY)
 
     @override
     async def async_media_pause(self) -> None:
         """Send pause command."""
-        await self._client.play_pause_toggle(self._snapshot.playback_status == PlaybackStatus.PLAY)
+        await self._client.play_pause_toggle(playing=self._snapshot.playback_status == PlaybackStatus.PLAY)
 
     @override
     async def async_media_stop(self) -> None:
