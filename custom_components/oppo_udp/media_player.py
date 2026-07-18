@@ -203,6 +203,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     """Representation of an Oppo/Magnetar media player."""
 
     _attr_has_entity_name = True
+    _attr_media_image_remotely_accessible = True
     _attr_name = None
     _attr_should_poll = False
     _attr_translation_key = "oppo_udp"
