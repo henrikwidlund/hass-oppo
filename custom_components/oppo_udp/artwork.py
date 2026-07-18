@@ -22,7 +22,7 @@ _CAA_BASE = "https://coverartarchive.org/release"
 _CACHE_TTL = 10800.0  # 3 hours
 _MB_RATE_LIMIT = 1.0  # MusicBrainz requires ≤ 1 req/sec
 _SCORE_THRESHOLD = 80
-_USER_AGENT = "hass-oppo/0.0.3 (https://github.com/henrikwidlund/hass-oppo)"
+_USER_AGENT = "hass-oppo/0.0.3"
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
@@ -83,11 +83,13 @@ class AlbumArtworkService:
     ) -> str | None:
         session = async_get_clientsession(self._hass)
         release_ids = await self._get_release_ids(session, artist, album, track)
+        _LOGGER.warning("Artwork lookup: artist=%r album=%r track=%r → %d release(s): %s", artist, album, track, len(release_ids), release_ids)
         for release_id in release_ids:
             cover = await self._check_cover_art(session, release_id)
+            _LOGGER.warning("Artwork check release %s → %s", release_id, cover)
             if cover is not None:
                 return cover
-        _LOGGER.debug("No cover found for artist=%r album=%r track=%r", artist, album, track)
+        _LOGGER.warning("No cover found for artist=%r album=%r track=%r", artist, album, track)
         return None
 
     async def _get_release_ids(
@@ -140,10 +142,10 @@ class AlbumArtworkService:
                 if resp.status == 200:
                     result: dict[str, Any] = await resp.json()
                     return result
-                _LOGGER.debug("MusicBrainz returned %s for %s", resp.status, url)
+                _LOGGER.warning("MusicBrainz returned %s for %s", resp.status, url)
                 return None
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("Error querying MusicBrainz: %s", url, exc_info=True)
+            _LOGGER.warning("Error querying MusicBrainz: %s", url, exc_info=True)
             return None
 
     @staticmethod
@@ -159,5 +161,5 @@ class AlbumArtworkService:
                 if resp.ok:
                     return url
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("Error checking cover art for release %s", release_id, exc_info=True)
+            _LOGGER.warning("Error checking cover art for release %s", release_id, exc_info=True)
         return None
