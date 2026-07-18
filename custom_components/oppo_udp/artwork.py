@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import TYPE_CHECKING, Any
 import urllib.parse
-from typing import Any
 
 import aiohttp
 
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,22 +111,22 @@ class AlbumArtworkService:
             )
             return [r["id"] for r in candidates if "id" in r]
 
-        assert track is not None
+        if track is None:
+            return []
         query = f"artist:{_lucene_phrase(artist)} AND recording:{_lucene_phrase(track)}"
         url = f"{_MB_BASE}/recording/?query={urllib.parse.quote(query)}&fmt=json"
         data = await self._mb_get(session, url)
         if data is None:
             return []
         recordings: list[dict[str, Any]] = data.get("recordings", [])
-        release_ids: list[str] = []
-        for rec in sorted(
+        ordered = sorted(
             (r for r in recordings if r.get("score", 0) > _SCORE_THRESHOLD),
             key=lambda r: r.get("score", 0),
             reverse=True,
-        ):
-            for rel in rec.get("releases", []):
-                if rid := rel.get("id"):
-                    release_ids.append(rid)
+        )
+        release_ids: list[str] = []
+        for rec in ordered:
+            release_ids.extend(rid for rel in rec.get("releases", []) if (rid := rel.get("id")))
         return release_ids
 
     async def _mb_get(self, session: aiohttp.ClientSession, url: str) -> dict[str, Any] | None:
