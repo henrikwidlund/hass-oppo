@@ -1129,12 +1129,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     async def async_media_play(self) -> None:
         """Send play command."""
-        await self._client.play_pause_toggle()
+        await self._client.play_pause_toggle(self._snapshot.playback_status == PlaybackStatus.PLAY)
 
     @override
     async def async_media_pause(self) -> None:
         """Send pause command."""
-        await self._client.play_pause_toggle()
+        await self._client.play_pause_toggle(self._snapshot.playback_status == PlaybackStatus.PLAY)
 
     @override
     async def async_media_stop(self) -> None:

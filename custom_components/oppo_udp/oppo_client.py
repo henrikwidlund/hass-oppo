@@ -419,9 +419,9 @@ class OppoClient:
 
     # --- Playback commands ---
 
-    async def play_pause_toggle(self) -> bool:
-        """Toggle Play/Pause  playback."""
-        response = await self._send_command("PAU")
+    async def play_pause_toggle(self, playing: bool) -> bool:
+        """Toggle Play/Pause playback."""
+        response = await self._send_command("PAU" if playing else "PLA")
         return response is not None and "@OK" in response
 
     async def stop(self) -> bool:
