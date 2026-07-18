@@ -24,6 +24,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
+from .artwork import AlbumArtworkService
 from .const import (
     ARC_HDMI_OUT,
     ARC_HDMI_OUT_1,
@@ -238,6 +239,13 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # transition can cancel the previous delayed SVM send.
         self._verbose_mode_task: asyncio.Task[None] | None = None
 
+        # Album artwork — fetched async from MusicBrainz/Cover Art Archive,
+        # only for models that expose track metadata (UDP-20X).
+        self._artwork_service: AlbumArtworkService | None = None
+        self._media_image_url: str | None = None
+        self._last_artwork_key: tuple[str | None, ...] = ()
+        self._artwork_task: asyncio.Task[None] | None = None
+
         # Input sources per model. BDP-83/93/95 have no input-source control, so
         # they get an empty map and SELECT_SOURCE is not advertised.
         source_maps: dict[str, dict[str, int]] = {
@@ -332,6 +340,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     @property
     @override
+    def media_image_url(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return album art URL fetched from Cover Art Archive."""
+        return self._media_image_url
+
+    @property
+    @override
     def media_position(self) -> int | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the media position in seconds."""
         return self._snapshot.media_position
@@ -407,6 +421,8 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass."""
         await super().async_added_to_hass()
+        if self._supports_full_metadata:
+            self._artwork_service = AlbumArtworkService(self.hass)
         await self._connect_and_stream()
 
     @override
@@ -421,6 +437,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if pending_verbose is not None and not pending_verbose.done():
             with contextlib.suppress(asyncio.CancelledError):
                 await pending_verbose
+        pending_artwork = self._artwork_task
+        self._cancel_artwork_task()
+        if pending_artwork is not None and not pending_artwork.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_artwork
         await self._client.stop_streaming()
         await self._client.disconnect()
 
@@ -757,6 +778,60 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             if exc is not None:
                 _LOGGER.debug("Verbose-mode task raised for host %s", self._client.host, exc_info=exc)
 
+    def _schedule_artwork_fetch(self) -> None:
+        """Kick off an artwork fetch if the track changed and model supports it."""
+        if self._artwork_service is None:
+            return
+        snap = self._snapshot
+        if snap.disc_type not in _AUDIO_DISC_TYPES:
+            return
+        artist = snap.media_artist
+        album = snap.media_album
+        track = snap.media_title
+        if not artist or (not album and not track):
+            return
+        key: tuple[str | None, ...] = (artist, album) if album else (artist, None, track)
+        if key == self._last_artwork_key:
+            return
+        self._last_artwork_key = key
+        self._cancel_artwork_task()
+        artwork_task = self.hass.async_create_task(
+            self._fetch_artwork(artist, album, track),
+            name=f"oppo_udp_artwork[{self._client.host}]",
+        )
+        artwork_task.add_done_callback(self._handle_artwork_task_done)
+        self._artwork_task = artwork_task
+
+    def _cancel_artwork_task(self) -> None:
+        """Cancel any pending artwork fetch task."""
+        task = self._artwork_task
+        if task is not None and not task.done():
+            task.cancel()
+        self._artwork_task = None
+
+    def _handle_artwork_task_done(self, task: asyncio.Task[None]) -> None:
+        """Drain the artwork task's result to keep the loop quiet."""
+        with contextlib.suppress(asyncio.CancelledError):
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                _LOGGER.debug("Artwork task raised for host %s", self._client.host, exc_info=exc)
+
+    async def _fetch_artwork(self, artist: str, album: str | None, track: str | None) -> None:
+        """Fetch album art and write to state when done."""
+        service = self._artwork_service
+        if service is None:
+            return
+        try:
+            url = await service.get_cover_url(artist, album, track)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Error fetching artwork", exc_info=True)
+            return
+        self._media_image_url = url
+        self._artwork_task = None
+        self.async_write_ha_state()
+
     async def _ensure_verbose_mode(self) -> None:
         """Send ``SVM 3`` to enable detailed streaming updates.
 
@@ -875,6 +950,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # Playback domain invalidated — re-arm the @UTC change detector so the
         # next time-code event rebuilds against fresh metadata.
         self._reset_progress_cursor()
+        self._media_image_url = None
+        self._last_artwork_key = ()
+        self._cancel_artwork_task()
 
     def _reset_progress_cursor(self) -> None:
         """Re-arm the streaming @UTC title/chapter change detector."""
@@ -923,6 +1001,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             # its dataclass default, so no stale value can survive.
             self._snapshot = new_snapshot
             self.async_write_ha_state()
+            self._schedule_artwork_fetch()
 
     @staticmethod
     def _streaming_playback_to_enum(status: str) -> PlaybackStatus:
