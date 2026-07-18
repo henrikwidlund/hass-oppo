@@ -26,10 +26,26 @@ _USER_AGENT = "hass-oppo/0.0.3"
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
-def _lucene_phrase(value: str) -> str:
-    """Wrap value in a Lucene phrase so its contents are treated literally."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+_LUCENE_SPECIALS = str.maketrans({c: f"\\{c}" for c in r'+-&|!(){}[]^"~?:\/'})
+
+def _lucene_term(value: str) -> str:
+    """Build a Lucene term, preserving a trailing * as a prefix wildcard.
+
+    The Oppo player truncates fields with a trailing *. Wildcards only work on
+    bare Lucene terms (not inside phrase queries). For multi-word truncated
+    values (e.g. "NORTHERN LIGHTS*") we quote all but the last word so Lucene
+    treats them as a contiguous unit: +"NORTHERN" LIGHTS*
+    """
+    if value.endswith("*"):
+        core = value[:-1].rstrip()
+        # Split off the last (possibly partial) word; quote the leading words.
+        parts = core.rsplit(None, 1)
+        if len(parts) == 2:
+            prefix = parts[0].translate(_LUCENE_SPECIALS)
+            tail = parts[1].translate(_LUCENE_SPECIALS)
+            return f'+"{prefix}" {tail}*'
+        return f'{core.translate(_LUCENE_SPECIALS)}*'
+    return f'"{value.translate(_LUCENE_SPECIALS)}"'
 
 
 class AlbumArtworkService:
@@ -111,7 +127,7 @@ class AlbumArtworkService:
         track: str | None,
     ) -> list[str]:
         if album:
-            query = f"artist:{_lucene_phrase(artist)} AND release:{_lucene_phrase(album)}"
+            query = f"artist:{_lucene_term(artist)} AND release:{_lucene_term(album)}"
             url = f"{_MB_BASE}/release/?query={urllib.parse.quote(query)}&fmt=json"
             data = await self._mb_get(session, url)
             if data is None:
@@ -126,7 +142,7 @@ class AlbumArtworkService:
 
         if track is None:
             return []
-        query = f"artist:{_lucene_phrase(artist)} AND recording:{_lucene_phrase(track)}"
+        query = f"artist:{_lucene_term(artist)} AND recording:{_lucene_term(track)}"
         url = f"{_MB_BASE}/recording/?query={urllib.parse.quote(query)}&fmt=json"
         data = await self._mb_get(session, url)
         if data is None:
