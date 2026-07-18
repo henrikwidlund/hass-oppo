@@ -29,21 +29,17 @@ _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 _LUCENE_SPECIALS = str.maketrans({c: f"\\{c}" for c in r'+-&|!(){}[]^"~?:\/'})
 
 def _lucene_term(value: str) -> str:
-    """Build a Lucene term, preserving a trailing * as a prefix wildcard.
+    """Build a Lucene term, handling the Oppo player's trailing * truncation marker.
 
-    The Oppo player truncates fields with a trailing *. Wildcards only work on
-    bare Lucene terms (not inside phrase queries). For multi-word truncated
-    values (e.g. "NORTHERN LIGHTS*") we quote all but the last word so Lucene
-    treats them as a contiguous unit: +"NORTHERN" LIGHTS*
+    Wildcards only work on bare Lucene terms (not inside phrase queries).
+    For multi-word values the known words are used as a phrase — enough to
+    match the full title since Lucene phrase queries match subsequences.
+    Single-word truncated values use a bare wildcard prefix (e.g. NORTHER*).
     """
     if value.endswith("*"):
         core = value[:-1].rstrip()
-        # Split off the last (possibly partial) word; quote the leading words.
-        parts = core.rsplit(None, 1)
-        if len(parts) == 2:
-            prefix = parts[0].translate(_LUCENE_SPECIALS)
-            tail = parts[1].translate(_LUCENE_SPECIALS)
-            return f'+"{prefix}" {tail}*'
+        if " " in core:
+            return f'"{core.translate(_LUCENE_SPECIALS)}"'
         return f'{core.translate(_LUCENE_SPECIALS)}*'
     return f'"{value.translate(_LUCENE_SPECIALS)}"'
 
