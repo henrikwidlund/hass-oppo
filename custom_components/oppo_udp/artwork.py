@@ -28,20 +28,33 @@ _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 _LUCENE_SPECIALS = str.maketrans({c: f"\\{c}" for c in r'+-&|!(){}[]^"~?:\/'})
 
-def _lucene_term(value: str) -> str:
-    """Build a Lucene term, handling the Oppo player's trailing * truncation marker.
 
-    Wildcards only work on bare Lucene terms (not inside phrase queries).
-    For multi-word values the known words are used as a phrase — enough to
-    match the full title since Lucene phrase queries match subsequences.
-    Single-word truncated values use a bare wildcard prefix (e.g. NORTHER*).
+def _lucene_clause(field: str, value: str) -> str:
+    """Build a Lucene field clause, handling the Oppo player's trailing * truncation.
+
+    Values are lowercased throughout: Lucene matching is case-insensitive for
+    analyzed fields, and lowercase keeps a truncated AND/OR/NOT from being read
+    as a boolean operator in a bare-term query.
+
+    The player appends * when a field is truncated at a fixed buffer boundary:
+      - " *" (space before *): truncation fell on a word boundary; all captured
+        words are whole tokens → exact phrase query.
+      - "word*" (no space): the last captured word is partial. Quote the whole
+        leading words and match the partial word with a wildcard, grouped so the
+        field applies to both: release:("northern" AND lig*). This keeps the
+        leading words field-scoped and required (bare trailing terms leak to the
+        default field and let unrelated releases outrank the real one).
     """
+    value = value.lower()
     if value.endswith("*"):
+        if value.endswith(" *"):
+            return f'{field}:"{value[:-2].rstrip().translate(_LUCENE_SPECIALS)}"'
         core = value[:-1].rstrip()
-        if " " in core:
-            return f'"{core.translate(_LUCENE_SPECIALS)}"'
-        return f'{core.translate(_LUCENE_SPECIALS)}*'
-    return f'"{value.translate(_LUCENE_SPECIALS)}"'
+        prefix, sep, tail = core.rpartition(" ")
+        if sep:
+            return f'{field}:("{prefix.rstrip().translate(_LUCENE_SPECIALS)}" AND {tail.translate(_LUCENE_SPECIALS)}*)'
+        return f"{field}:{core.translate(_LUCENE_SPECIALS)}*"
+    return f'{field}:"{value.translate(_LUCENE_SPECIALS)}"'
 
 
 class AlbumArtworkService:
@@ -68,8 +81,8 @@ class AlbumArtworkService:
         if album:
             upper_artist = artist.upper()
             upper_album = album.upper()
-            if upper_album.startswith(upper_artist) and album[len(artist):].startswith("   "):
-                album = album[len(artist) + 3:]
+            if upper_album.startswith(upper_artist) and album[len(artist) :].startswith("   "):
+                album = album[len(artist) + 3 :]
 
         if not album and not track:
             return None
@@ -106,7 +119,14 @@ class AlbumArtworkService:
     ) -> str | None:
         session = async_get_clientsession(self._hass)
         release_ids = await self._get_release_ids(session, artist, album, track)
-        _LOGGER.warning("Artwork lookup: artist=%r album=%r track=%r → %d release(s): %s", artist, album, track, len(release_ids), release_ids)
+        _LOGGER.warning(
+            "Artwork lookup: artist=%r album=%r track=%r → %d release(s): %s",
+            artist,
+            album,
+            track,
+            len(release_ids),
+            release_ids,
+        )
         for release_id in release_ids:
             cover = await self._check_cover_art(session, release_id)
             _LOGGER.warning("Artwork check release %s → %s", release_id, cover)
@@ -123,7 +143,7 @@ class AlbumArtworkService:
         track: str | None,
     ) -> list[str]:
         if album:
-            query = f"artist:{_lucene_term(artist)} AND release:{_lucene_term(album)}"
+            query = f"{_lucene_clause('artist', artist)} AND {_lucene_clause('release', album)}"
             url = f"{_MB_BASE}/release/?query={urllib.parse.quote(query)}&fmt=json"
             data = await self._mb_get(session, url)
             if data is None:
@@ -138,7 +158,7 @@ class AlbumArtworkService:
 
         if track is None:
             return []
-        query = f"artist:{_lucene_term(artist)} AND recording:{_lucene_term(track)}"
+        query = f"{_lucene_clause('artist', artist)} AND {_lucene_clause('recording', track)}"
         url = f"{_MB_BASE}/recording/?query={urllib.parse.quote(query)}&fmt=json"
         data = await self._mb_get(session, url)
         if data is None:
