@@ -140,7 +140,7 @@ class AlbumArtworkService:
                     return result
                 _LOGGER.debug("MusicBrainz returned %s for %s", resp.status, url)
                 return None
-        except Exception:
+        except Exception:  # noqa: BLE001
             _LOGGER.debug("Error querying MusicBrainz: %s", url, exc_info=True)
             return None
 
@@ -155,6 +155,6 @@ class AlbumArtworkService:
             ) as resp:
                 if resp.ok:
                     return url
-        except Exception:
+        except Exception:  # noqa: BLE001
             _LOGGER.debug("Error checking cover art for release %s", release_id, exc_info=True)
         return None

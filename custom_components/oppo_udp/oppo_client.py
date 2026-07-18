@@ -336,7 +336,7 @@ class OppoClient:
             self._writer.write(cmd_bytes)
             await self._writer.drain()
             self._last_command_time = asyncio.get_running_loop().time()
-        except Exception:
+        except Exception:  # noqa: BLE001
             if self._pending_response is pending_response:
                 self._pending_response = None
             if self._pending_command == command:
@@ -842,7 +842,7 @@ class OppoClient:
                 for cb in self._streaming_callbacks:
                     try:
                         cb(event)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         _LOGGER.exception("Error in streaming callback")
         except asyncio.CancelledError:
             _LOGGER.debug("Streaming event dispatcher task cancelled")
@@ -875,7 +875,7 @@ class OppoClient:
                     event = self._parse_streaming_frame(frame)
                     if event:
                         self._enqueue_streaming_event(event)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _LOGGER.exception("Error parsing streaming frame")
         finally:
             # Complete any pending command response with None
@@ -911,7 +911,7 @@ class OppoClient:
             if not self._stop_streaming_requested and self._disconnect_callback is not None:
                 try:
                     self._disconnect_callback()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     _LOGGER.exception("Error in disconnect callback")
 
     def _try_complete_pending_response(self, frame: str) -> bool:

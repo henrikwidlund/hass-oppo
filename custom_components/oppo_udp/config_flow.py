@@ -111,7 +111,7 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
                 if power_state != PowerState.UNKNOWN:
                     return {}
             return {"base": "cannot_connect"}
-        except Exception:
+        except Exception:  # noqa: BLE001
             _LOGGER.exception("Unexpected exception during connection test")
             return {"base": "cannot_connect"}
         finally:
@@ -140,7 +140,7 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             if await client.connect():
                 return {}
             return {"base": "cannot_connect"}
-        except Exception:
+        except Exception:  # noqa: BLE001
             _LOGGER.exception("Unexpected exception during connection test")
             return {"base": "cannot_connect"}
         finally:
