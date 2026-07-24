@@ -68,7 +68,7 @@ These players share the Oppo command codes but use the IP `REMOTE <CODE>` framin
 - Player must be connected to your network
 - The player communicates on TCP port 23 (UDP-20X), 19999 (BDP-83), 48360 (BDP-93/95/103/105) or 8102 (Magnetar)
 - If you want to power the player on via the integration, enable network in standby in the player's settings
-- Home Assistant `2026.7.3` or newer
+- Home Assistant `2026.7.4` or newer
 - Python `3.14.2` or newer (matches Home Assistant's bundled Python)
 
 ## Protocol
