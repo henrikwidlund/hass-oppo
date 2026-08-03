@@ -582,15 +582,19 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # Audio type (always available during active playback)
         snapshot.audio_type = await self._client.query_audio_type()
 
+        # Movies shorter than 60s are most likely a title screen. Avoid
+        # querying subtitle/aspect-ratio/3D/HDR info as it could lock up the
+        # player if it's not in a state where that info is available.
+        short_movie = is_movie and (duration := snapshot.media_duration) is not None and duration < 60
+
         # Subtitle info (only relevant for video discs)
-        # Skip if duration is less than 60s (most likely title screen)
-        if is_movie and (duration := snapshot.media_duration) is not None and duration >= 60:
+        if is_movie and not short_movie:
             snapshot.subtitle_type = await self._client.query_subtitle_type()
 
         # Video-only attributes (aspect ratio / 3D / HDR) are UDP-20X only — a
         # snapshot rebuild fully refreshes them instead of relying on the next
         # streaming event.
-        if not is_movie or not self._supports_full_metadata:
+        if not is_movie or not self._supports_full_metadata or short_movie:
             return
         snapshot.aspect_ratio = await self._client.query_aspect_ratio()
         # 3D is only meaningful on Blu-Ray movie discs.
@@ -732,10 +736,18 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self.async_write_ha_state()
 
     def _is_uhd_active_playback(self) -> bool:
-        """True when a UHD Blu-Ray is actively playing/paused."""
-        return self._snapshot.disc_type == "uhbd" and self._snapshot.playback_status in (
-            PlaybackStatus.PLAY,
-            PlaybackStatus.PAUSE,
+        """True when a UHD Blu-Ray is actively playing/paused past the title screen.
+
+        Movies shorter than 60s are most likely a title screen — avoid
+        querying HDR status as it could lock up the player if it's not in a
+        state where that info is available.
+        """
+        duration = self._snapshot.media_duration
+        return (
+            self._snapshot.disc_type == "uhbd"
+            and self._snapshot.playback_status in (PlaybackStatus.PLAY, PlaybackStatus.PAUSE)
+            and duration is not None
+            and duration >= 60
         )
 
     def _schedule_ensure_verbose_mode(self) -> None:
