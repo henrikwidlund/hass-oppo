@@ -76,6 +76,10 @@ _VERBOSE_MODE_POWER_ON_DELAY = 1.0
 # How long to wait before retrying the control connection after a failure.
 _RECONNECT_INTERVAL = 30
 
+# Threshold to not query movie data if we most likely are in a title screen
+# that doesn't allow for querying that info.
+_SHORT_MOVE_THRESHOLD_SECONDS = 300
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
@@ -582,20 +586,28 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # Audio type (always available during active playback)
         snapshot.audio_type = await self._client.query_audio_type()
 
-        # Movies shorter than 60s are most likely a title screen. Avoid
+        # Movies shorter than 300s are most likely a title screen. Avoid
         # querying subtitle/aspect-ratio/3D/HDR info as it could lock up the
         # player if it's not in a state where that info is available.
-        short_movie = is_movie and (duration := snapshot.media_duration) is not None and duration < 60
+        short_movie = (
+            is_movie and (duration := snapshot.media_duration) is not None and duration < _SHORT_MOVE_THRESHOLD_SECONDS
+        )
+
+        if not is_movie:
+            return
+
+        if short_movie:
+            return
 
         # Subtitle info (only relevant for video discs)
-        if is_movie and not short_movie:
-            snapshot.subtitle_type = await self._client.query_subtitle_type()
+        snapshot.subtitle_type = await self._client.query_subtitle_type()
 
         # Video-only attributes (aspect ratio / 3D / HDR) are UDP-20X only — a
         # snapshot rebuild fully refreshes them instead of relying on the next
         # streaming event.
-        if not is_movie or not self._supports_full_metadata or short_movie:
+        if not self._supports_full_metadata:
             return
+
         snapshot.aspect_ratio = await self._client.query_aspect_ratio()
         # 3D is only meaningful on Blu-Ray movie discs.
         if snapshot.disc_type == "bd-mv":
@@ -738,7 +750,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _is_uhd_active_playback(self) -> bool:
         """True when a UHD Blu-Ray is actively playing/paused past the title screen.
 
-        Movies shorter than 60s are most likely a title screen — avoid
+        Movies shorter than 300s are most likely a title screen — avoid
         querying HDR status as it could lock up the player if it's not in a
         state where that info is available.
         """
@@ -747,7 +759,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._snapshot.disc_type == "uhbd"
             and self._snapshot.playback_status in (PlaybackStatus.PLAY, PlaybackStatus.PAUSE)
             and duration is not None
-            and duration >= 60
+            and duration >= _SHORT_MOVE_THRESHOLD_SECONDS
         )
 
     def _schedule_ensure_verbose_mode(self) -> None:
