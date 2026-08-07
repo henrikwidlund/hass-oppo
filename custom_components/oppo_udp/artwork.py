@@ -119,7 +119,7 @@ class AlbumArtworkService:
     ) -> str | None:
         session = async_get_clientsession(self._hass)
         release_ids = await self._get_release_ids(session, artist, album, track)
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Artwork lookup: artist=%r album=%r track=%r → %d release(s): %s",
             artist,
             album,
@@ -129,10 +129,10 @@ class AlbumArtworkService:
         )
         for release_id in release_ids:
             cover = await self._check_cover_art(session, release_id)
-            _LOGGER.warning("Artwork check release %s → %s", release_id, cover)
+            _LOGGER.debug("Artwork check release %s → %s", release_id, cover)
             if cover is not None:
                 return cover
-        _LOGGER.warning("No cover found for artist=%r album=%r track=%r", artist, album, track)
+        _LOGGER.debug("No cover found for artist=%r album=%r track=%r", artist, album, track)
         return None
 
     async def _get_release_ids(
