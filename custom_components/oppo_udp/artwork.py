@@ -187,7 +187,7 @@ class AlbumArtworkService:
                     return result
                 _LOGGER.warning("MusicBrainz returned %s for %s", resp.status, url)
                 return None
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.warning("Error querying MusicBrainz: %s", url, exc_info=True)
             return None
 
@@ -203,6 +203,6 @@ class AlbumArtworkService:
             ) as resp:
                 if resp.ok:
                     return url
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.warning("Error checking cover art for release %s", release_id, exc_info=True)
         return None

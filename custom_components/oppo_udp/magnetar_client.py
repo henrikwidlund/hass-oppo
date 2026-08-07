@@ -98,7 +98,7 @@ class MagnetarClient:
         try:
             writer.close()
             await writer.wait_closed()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error closing writer during teardown", exc_info=True)
 
     async def disconnect(self) -> None:

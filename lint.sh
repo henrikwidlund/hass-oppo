@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m ruff check custom_components/oppo_udp --fix && \
-python -m ruff format custom_components/oppo_udp && \
-python -m pyright
+uv sync --frozen --group dev
+uv run --frozen --no-build --no-sync ruff check custom_components/ --fix && \
+uv run --frozen --no-build --no-sync ruff format --check custom_components/ && \
+uv run --frozen --no-build --no-sync python -m pyright custom_components/
