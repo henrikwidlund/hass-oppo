@@ -480,7 +480,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if self._snapshot.power_state != PowerState.ON:
             try:
                 fresh_power = await self._client.query_power_status()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Power status re-query failed", exc_info=True)
             else:
                 self._snapshot.power_state = fresh_power
@@ -496,7 +496,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """Fetch a full snapshot from the player after connecting."""
         try:
             self._snapshot = await self._build_snapshot()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error fetching initial state", exc_info=True)
         self.async_write_ha_state()
 
@@ -850,7 +850,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             return
         try:
             url = await service.get_cover_url(artist, album, track)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error fetching artwork", exc_info=True)
             return
         self._media_image_url = url
@@ -876,14 +876,14 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 _LOGGER.debug("Failed to enable verbose mode")
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error enabling verbose mode", exc_info=True)
 
     async def _refresh_hdr(self) -> None:
         """Query HDR status and update the snapshot in place."""
         try:
             self._snapshot.hdr_status = await self._client.query_hdr_status()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error refreshing HDR status", exc_info=True)
             return
         self.async_write_ha_state()
@@ -1008,7 +1008,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         new_snapshot: _Snapshot | None = None
         try:
             new_snapshot = await self._build_snapshot()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error rebuilding snapshot", exc_info=True)
         finally:
             self._rebuild_in_progress = False

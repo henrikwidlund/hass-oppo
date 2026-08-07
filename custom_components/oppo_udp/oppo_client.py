@@ -235,7 +235,7 @@ class OppoClient:
         try:
             writer.close()
             await writer.wait_closed()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug("Error closing writer during teardown", exc_info=True)
 
     @staticmethod
@@ -282,7 +282,7 @@ class OppoClient:
             try:
                 self._writer.close()
                 await self._writer.wait_closed()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug("Error closing writer during disconnect", exc_info=True)
         self._writer = None
         self._reader = None
@@ -895,7 +895,7 @@ class OppoClient:
                     try:
                         writer.close()
                         await writer.wait_closed()
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         _LOGGER.debug("Error closing writer after streaming disconnect", exc_info=True)
 
                 # Unexpected reader loop exit should tear down dispatcher + queue
