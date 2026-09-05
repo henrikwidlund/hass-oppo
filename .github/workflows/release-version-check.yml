@@ -1,0 +1,33 @@
+name: Release Version Check
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    name: Check version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            custom_components/oppo_udp
+      - name: Compare tag, pyproject.toml and manifest.json versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pyproject_version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/^version = "(.*)"$/\1/')
+          manifest_version=$(python3 -c "import json; print(json.load(open('custom_components/oppo_udp/manifest.json'))['version'])")
+
+          echo "Release tag:      $tag"
+          echo "pyproject.toml:   $pyproject_version"
+          echo "manifest.json:    $manifest_version"
+
+          if [ "$tag" != "$pyproject_version" ] || [ "$tag" != "$manifest_version" ]; then
+            echo "::error::Version mismatch: tag=$tag pyproject.toml=$pyproject_version manifest.json=$manifest_version"
+            exit 1
+          fi
