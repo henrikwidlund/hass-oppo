@@ -116,6 +116,22 @@ _HDR_RESPONSE_TO_VALUE: dict[str, str] = {
 }
 
 
+def enable_tcp_keepalive(raw_sock: socket.socket) -> None:
+    """Enable TCP keepalive so a dead connection is detected without waiting for a write.
+
+    Idle/interval/count tuning is Linux-only; other platforms fall back to the OS
+    keepalive defaults (typically hours), which still beats no keepalive at all.
+    """
+    raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    keepidle = getattr(socket, "TCP_KEEPIDLE", None)
+    keepintvl = getattr(socket, "TCP_KEEPINTVL", None)
+    keepcnt = getattr(socket, "TCP_KEEPCNT", None)
+    if isinstance(keepidle, int) and isinstance(keepintvl, int) and isinstance(keepcnt, int):
+        raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 30)
+        raw_sock.setsockopt(socket.IPPROTO_TCP, keepintvl, 10)
+        raw_sock.setsockopt(socket.IPPROTO_TCP, keepcnt, 3)
+
+
 _QRP_REPLY_TO_REPEAT_MODE: dict[str, RepeatMode] = {
     "00 Off": RepeatMode.OFF,
     "01 Repeat One": RepeatMode.CHAPTER,
@@ -193,6 +209,7 @@ class OppoClient:
             raw_sock = self._writer.get_extra_info("socket")
             if raw_sock is not None:
                 raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                enable_tcp_keepalive(raw_sock)
             self._connected = True
             _LOGGER.debug("Connected to Oppo player at %s:%s", self._host, self._port)
         except OSError:

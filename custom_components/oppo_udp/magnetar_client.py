@@ -17,7 +17,7 @@ import re
 import socket
 
 from .const import MAGNETAR_PORT
-from .oppo_client import PowerState
+from .oppo_client import PowerState, enable_tcp_keepalive
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +78,7 @@ class MagnetarClient:
             raw_sock = self._writer.get_extra_info("socket")
             if raw_sock is not None:
                 raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                enable_tcp_keepalive(raw_sock)
             self._connected = True
             _LOGGER.debug("Connected to Magnetar player at %s:%s", self._host, self._port)
         except OSError:
