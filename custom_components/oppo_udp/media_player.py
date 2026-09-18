@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, Any, override
 
+import aiohttp
+
 from homeassistant.components.media_player import (
     ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerEntity,
@@ -19,6 +21,7 @@ from homeassistant.components.media_player import (
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT
 from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, State, callback
 from homeassistant.helpers import entity_platform
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -79,6 +82,13 @@ _RECONNECT_INTERVAL = 30
 # Threshold to not query movie data if we most likely are in a title screen
 # that doesn't allow for querying that info.
 _SHORT_MOVE_THRESHOLD_SECONDS = 300
+
+# Legacy HTTP remote-key endpoint exposed by pre-20X players (BDP-83/93/95/103/105),
+# used as a supplementary power-on path alongside (or, for BDP-103/105, instead of)
+# the telnet control socket.
+_HTTP_POWER_ON_PORT = 436
+_HTTP_POWER_ON_PATH = "/sendremotekey?%7B%22key%22%3A%22POW%22%7D"
+_HTTP_POWER_ON_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -631,7 +641,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._unsub_reconnect()
             self._unsub_reconnect = None
 
-    async def _reconnect_callback(self, _now: datetime) -> None:
+    async def _reconnect_callback(self, _: datetime) -> None:
         """Attempt to reconnect."""
         self._unsub_reconnect = None
         if not self._client.connected:
@@ -1130,13 +1140,39 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     async def async_turn_on(self) -> None:
         """Turn the player on and re-enable verbose streaming updates."""
-        if not await self._client.power_on():
+        if self._model == MODEL_BDP10X:
+            # BDP-103 doesn't power on when sending PON on the regular TCP connection,
+            # instead it disconnects the client. Use HTTP command instead, just like the
+            # mobile apps do.
+            await self._send_http_power_on()
+            self._schedule_ensure_verbose_mode()
+            return
+        if self._model in PRE_20X_MODELS:
+            powered_on, _ = await asyncio.gather(
+                self._client.power_on(), self._send_http_power_on()
+            )
+        else:
+            powered_on = await self._client.power_on()
+        if not powered_on:
             return
         # PON ACK means the player accepted the power-on, but it needs a
         # short grace period before it reliably honors SVM 3. Fire and forget
         # so the service call returns immediately; `_ensure_verbose_mode`
         # waits internally before sending the command.
         self._schedule_ensure_verbose_mode()
+
+    async def _send_http_power_on(self) -> None:
+        """Send HTTP remote-key POW command as a supplementary wake path.
+
+        This is what the mobile app does for all pre 20x models.
+        """
+        url = f"http://{self._client.host}:{_HTTP_POWER_ON_PORT}{_HTTP_POWER_ON_PATH}"
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(url, timeout=_HTTP_POWER_ON_TIMEOUT) as response:
+                await response.read()
+        except (aiohttp.ClientError, TimeoutError):
+            _LOGGER.exception("HTTP power-on request to %s failed", url)
 
     @override
     async def async_turn_off(self) -> None:
