@@ -1148,9 +1148,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._schedule_ensure_verbose_mode()
             return
         if self._model in PRE_20X_MODELS:
-            powered_on, _ = await asyncio.gather(
-                self._client.power_on(), self._send_http_power_on()
-            )
+            powered_on, _ = await asyncio.gather(self._client.power_on(), self._send_http_power_on())
         else:
             powered_on = await self._client.power_on()
         if not powered_on:
@@ -1171,7 +1169,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         try:
             async with session.get(url, timeout=_HTTP_POWER_ON_TIMEOUT) as response:
                 await response.read()
-        except (aiohttp.ClientError, TimeoutError):
+        except aiohttp.ClientError, TimeoutError:
             _LOGGER.exception("HTTP power-on request to %s failed", url)
 
     @override
