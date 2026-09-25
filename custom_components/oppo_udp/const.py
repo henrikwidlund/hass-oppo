@@ -40,6 +40,11 @@ MAGNETAR_MODELS = frozenset({MODEL_MAGNETAR})
 # ports. Responses, verbose mode and status updates are identical to the 20X.
 PRE_20X_MODELS = frozenset({MODEL_BDP83, MODEL_BDP9X, MODEL_BDP10X})
 
+# Only the UDP-203/UDP-205 broadcast the UDP auto-discovery notification (see
+# the RS-232 & IP Control Protocol document); pre-20X and Magnetar players do
+# not, so a discovered player is always one of these two models.
+UDP20X_MODELS = [MODEL_UDP203, MODEL_UDP205]
+
 # Default TCP control port per model (used when the user leaves the port field
 # at the UDP-20X default). Magnetar handles its own port elsewhere.
 MODEL_DEFAULT_PORTS = {
@@ -49,6 +54,23 @@ MODEL_DEFAULT_PORTS = {
     MODEL_UDP203: DEFAULT_PORT,
     MODEL_UDP205: DEFAULT_PORT,
 }
+
+# Every pre-20X and 20X player also answers the legacy "OREMOTE" discovery
+# probe (see discovery.py), whose reply carries the model's own control
+# port - the reverse of MODEL_DEFAULT_PORTS above, used to narrow the
+# discovery-confirmation model dropdown to the models that actually use that
+# port. BDP-93/95 and BDP-103/105 share a port and can't be told apart this
+# way, same as UDP-203/UDP-205 sharing DEFAULT_PORT.
+PORT_MODEL_CANDIDATES: dict[int, list[str]] = {
+    PORT_BDP83: [MODEL_BDP83],
+    PORT_BDP9X_10X: [MODEL_BDP9X, MODEL_BDP10X],
+    DEFAULT_PORT: UDP20X_MODELS,
+}
+
+# Every model discoverable via the OppoClient RS-232-over-IP protocol, i.e.
+# everything except Magnetar. Fallback model list when a legacy-probe reply
+# carries a port not in PORT_MODEL_CANDIDATES.
+OPPO_MODELS = [model for model in MODELS if model not in MAGNETAR_MODELS]
 
 # Input source display names
 BLU_RAY_PLAYER = "Blu-Ray Player"
