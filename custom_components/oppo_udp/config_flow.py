@@ -82,7 +82,7 @@ def _guess_udp20x_model(discovered_name: str) -> str:
 
     The discovery broadcast carries the player's configured name (e.g. "OPPO
     UDP-205"), not a model code, so this is a best-effort default for the
-    confirmation form — the user can still change it before submitting.
+    confirmation form - the user can still change it before submitting.
     """
     return MODEL_UDP205 if "205" in discovered_name else MODEL_UDP203
 
@@ -296,7 +296,7 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception during connection test")
             return {"base": "cannot_connect"}
         finally:
-            # Always tear down — connect() may have left a partial transport
+            # Always tear down - connect() may have left a partial transport
             # open (e.g. if setsockopt failed after the writer was created).
             await client.disconnect()
 
@@ -304,7 +304,7 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_validate_magnetar(user_input: dict[str, Any]) -> dict[str, str]:
         """Validate a Magnetar entry: require a MAC and confirm the port opens.
 
-        Magnetar players answer commands with ``ack`` only — there is no query
+        Magnetar players answer commands with ``ack`` only - there is no query
         to confirm identity, so a successful TCP connection is the strongest
         check available. The port defaults to the Magnetar control port (8102)
         when the user leaves the Oppo default untouched, but any explicit value

@@ -11,7 +11,7 @@ A custom Home Assistant integration for controlling Blu-Ray players via their TC
 - **Repeat and shuffle**: Set repeat mode (off/one/all) and toggle shuffle
 - **Media info**: Track name, album, artist, playback position/duration
 - **Extended state attributes**: Disc type, audio type, subtitle type, aspect ratio, 3D status, HDR status, video resolution
-- **Real-time updates**: Uses verbose mode 3 for detailed streaming status including playback progress
+- **Real-time updates**: Oppo/pre-20X players stream detailed status via verbose mode 3; Magnetar players stream real state via a separate push channel (see [Magnetar players](#magnetar-players))
 - **Auto-discovery**: Every supported model can be found automatically on your network (see [Auto-discovery](#auto-discovery))
 - **Custom services**: Dimmer, Pure Audio toggle, on-screen info toggle, audio language cycle, subtitle cycle, zoom cycle (see [Services](#services))
 - **Automatic reconnection**: Reconnects automatically if the connection is lost
@@ -57,12 +57,12 @@ None of the non-SSDP mechanisms are officially documented, so if a player doesn'
 
 ### Magnetar players
 
-Magnetar players speak a fire-and-forget network-control protocol on TCP port 8102: every command is acknowledged with `ack` and the player reports **no** power, playback or volume state. As a result:
+Magnetar players mostly speak a fire-and-forget network-control protocol on TCP port 8102: most commands are acknowledged with `ack` and carry no state. Right after connecting, the integration also sends an identify command - undocumented by the official manual, that makes the player start pushing its real power/playback/volume/now-playing state on the same connection. As a result:
 
-- State shown in Home Assistant is **optimistic** (assumed) — derived from the commands the integration sends, not read back from the player. The entity is flagged as `assumed_state`, and the last assumed state is restored across Home Assistant restarts.
-- Changes made outside Home Assistant (IR remote, front panel) are **not** detected, so the shown state can drift from reality until the next command is sent from Home Assistant.
+- State is **real**, not assumed, once that push connection is up - it reflects what the player is actually doing, including changes made outside Home Assistant (IR remote, front panel). Until the push channel connects (e.g. right after a Home Assistant restart, or while the player is unreachable), state falls back to **optimistic** (assumed) - derived from the last command the integration sent - and the entity is flagged `assumed_state` for that window; the last assumed state is restored across Home Assistant restarts.
+- Once the push channel is up, media info (track/artist/album, position/duration) and extended state attributes (HDR, 4K, color space, deep color, frame rate, channel, frequency, media type, repeat mode) are available, read-only.
 - Supported features: power on/off, play, pause, stop, next/previous, volume up/down, mute, plus the custom services below.
-- Not available (no protocol support): input source selection, set-volume-to-level, repeat/shuffle, media info, extended state attributes, and real-time streaming updates.
+- Not available (no protocol support for setting them): input source selection, set-volume-to-level, repeat/shuffle.
 - A MAC address is required. Power on sends a Wake-on-LAN magic packet before the power command as the players go into sleep mode after being powered off for some time.
 
 ### Older Oppo players (BDP-83/93/95/103/105)
@@ -87,6 +87,8 @@ These players share the Oppo command codes but use the IP `REMOTE <CODE>` framin
 This integration communicates with the player using the Oppo RS-232 and IP Control Protocol. UDP-20X players use `#CMD\r` framing on port 23; pre-20X players (BDP-83/93/95/103/105) use the IP `REMOTE CMD` framing on their model-specific ports. In both cases responses are received as `@OK value\r` or `@ER error\r`.
 
 The integration enables verbose mode 3 (detailed unsolicited status updates) so the player pushes state changes - including playback progress - in real-time without polling.
+
+Magnetar players use a different, undocumented protocol on port 8102 instead (see [Magnetar players](#magnetar-players)).
 
 ## Supported Input Sources
 
@@ -151,4 +153,5 @@ target:
 - **Cannot connect**: Ensure the player is powered on and on the same network. Check that no other application is connected to port 23 (only one TCP connection is allowed at a time).
 - **Slow responses**: The integration rate-limits commands to 100ms intervals to avoid overwhelming the player.
 - **State not updating**: If the player loses connection, it will automatically attempt to reconnect every 30 seconds.
+- **Magnetar playback status stuck on one value**: The player's `<state>` field (play/pause/stop) isn't documented anywhere and was inferred rather than confirmed against real hardware. If your firmware reports something else, playback status won't update (power, volume and media info still will) - check the Home Assistant log for "Unrecognized Magnetar playback state" and open an issue with the logged value.
 - **Player not found by auto-discovery**: Several of the discovery mechanisms rely on UDP broadcast/multicast reaching your Home Assistant host - check your router/firewall allows that traffic, then add the player manually (see [Configuration](#configuration)).

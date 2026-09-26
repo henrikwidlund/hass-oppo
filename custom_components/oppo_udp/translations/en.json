@@ -104,6 +104,37 @@
             "name": "Video resolution"
           }
         }
+      },
+      "magnetar": {
+        "state_attributes": {
+          "media_type": {
+            "name": "Media type"
+          },
+          "repeat_mode": {
+            "name": "Repeat mode"
+          },
+          "hdr": {
+            "name": "HDR"
+          },
+          "four_k": {
+            "name": "4K"
+          },
+          "color_space": {
+            "name": "Color space"
+          },
+          "deep_color": {
+            "name": "Deep color"
+          },
+          "frame_rate": {
+            "name": "Frame rate"
+          },
+          "channel": {
+            "name": "Channel"
+          },
+          "frequency": {
+            "name": "Frequency"
+          }
+        }
       }
     }
   },
