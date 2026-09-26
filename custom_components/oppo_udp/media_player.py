@@ -67,6 +67,7 @@ from .const import (
 )
 from .magnetar_client import MagnetarClient, MagnetarPlayState, MagnetarPushEvent, MagnetarVolumeUpdate
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
+from .oppo_http_client import query_music_play_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -402,6 +403,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._source_list = list(self._source_map.keys())
         # Only UDP-20X players support the aspect-ratio/3D/HDR/track-metadata
         self._supports_full_metadata = model in _FULL_METADATA_MODELS
+        # Pre-20X players expose track title/album/artist via their own
+        # HTTP-436 JSON API instead (no equivalent telnet query exists).
+        self._supports_http_metadata = model in PRE_20X_MODELS
 
     @property
     @override
@@ -569,7 +573,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._reconnect_scheduler = _ReconnectScheduler(
             self.hass, _RECONNECT_INTERVAL, lambda: self._client.connected, self._connect_and_stream
         )
-        if self._supports_full_metadata:
+        if self._supports_full_metadata or self._supports_http_metadata:
             self._artwork = _ArtworkFetcher(
                 self.hass, AlbumArtworkService(self.hass), self._client.host, self.async_write_ha_state
             )
@@ -720,12 +724,20 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if not elapsed or not remaining:
             return
 
-        # Track metadata (only available/relevant for audio discs, and only the
-        # UDP-20X players expose QTN/QTA/QTP).
+        # Track metadata (only available/relevant for audio discs). UDP-20X
+        # players expose QTN/QTA/QTP over telnet; pre-20X players have no
+        # telnet equivalent, but expose the same info via their own HTTP-436
+        # JSON API (id3info in /getmusicplayinfo).
         if not is_movie and self._supports_full_metadata:
             snapshot.media_title = await self._client.query_track_name()
             snapshot.media_album = await self._client.query_track_album()
             snapshot.media_artist = await self._client.query_track_performer()
+        elif not is_movie and self._supports_http_metadata:
+            info = await query_music_play_info(self.hass, self._client.host)
+            if info is not None:
+                snapshot.media_title = info.title
+                snapshot.media_album = info.album
+                snapshot.media_artist = info.artist
 
         # Audio type (always available during active playback)
         snapshot.audio_type = await self._client.query_audio_type()

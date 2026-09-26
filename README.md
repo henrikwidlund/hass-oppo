@@ -71,13 +71,13 @@ These players share the Oppo command codes but use the IP `REMOTE <CODE>` framin
 
 - **BDP-83 / BDP-93/95**: no input-source selection.
 - **BDP-103/105**: input-source selection is supported (see below).
-- **All pre-20X**: no aspect-ratio, 3D, HDR or track-name/album/artist metadata (the players don't expose those queries).
+- **All pre-20X**: no aspect-ratio, 3D or HDR (the players don't expose those queries). Track name/album/artist is available for these players too, but via a separate HTTP JSON API on port 436 rather than the telnet protocol (see [Protocol](#protocol)) - confirmed on BDP-103/105; BDP-83/93/95 support is untested but expected to work the same way, and fails silently (metadata just stays empty) if it doesn't.
 
 ## Requirements
 
 - Oppo BDP-83 / BDP-93/95 / BDP-103/105 / UDP-203 / UDP-205, or Magnetar player
 - Player must be connected to your network
-- The player communicates on TCP port 23 (UDP-20X), 19999 (BDP-83), 48360 (BDP-93/95/103/105) or 8102 (Magnetar)
+- The player communicates on TCP port 23 (UDP-20X), 19999 (BDP-83), 48360 (BDP-93/95/103/105) or 8102 (Magnetar); pre-20X players additionally use port 436 for track metadata
 - If you want to power the player on via the integration, enable network in standby in the player's settings
 - Home Assistant `2024.6.0` or newer
 - Python `3.14.2` or newer (matches Home Assistant's bundled Python)
@@ -87,6 +87,8 @@ These players share the Oppo command codes but use the IP `REMOTE <CODE>` framin
 This integration communicates with the player using the Oppo RS-232 and IP Control Protocol. UDP-20X players use `#CMD\r` framing on port 23; pre-20X players (BDP-83/93/95/103/105) use the IP `REMOTE CMD` framing on their model-specific ports. In both cases responses are received as `@OK value\r` or `@ER error\r`.
 
 The integration enables verbose mode 3 (detailed unsolicited status updates) so the player pushes state changes - including playback progress - in real-time without polling.
+
+Pre-20X players additionally expose track name/album/artist via a separate, proprietary HTTP JSON API on port 436 (undocumented by Oppo, reverse-engineered from their BDP-10x MediaControl mobile app). The integration queries it whenever the telnet status updates indicate track/disc info may have changed, rather than polling on a fixed interval.
 
 Magnetar players use a different, undocumented protocol on port 8102 instead (see [Magnetar players](#magnetar-players)).
 
@@ -155,3 +157,4 @@ target:
 - **State not updating**: If the player loses connection, it will automatically attempt to reconnect every 30 seconds.
 - **Magnetar playback status stuck on one value**: The player's `<state>` field (play/pause/stop) isn't documented anywhere and was inferred rather than confirmed against real hardware. If your firmware reports something else, playback status won't update (power, volume and media info still will) - check the Home Assistant log for "Unrecognized Magnetar playback state" and open an issue with the logged value.
 - **Player not found by auto-discovery**: Several of the discovery mechanisms rely on UDP broadcast/multicast reaching your Home Assistant host - check your router/firewall allows that traffic, then add the player manually (see [Configuration](#configuration)).
+- **No track/album/artist on a pre-20X player**: This is fetched over HTTP from port 436, confirmed only on BDP-103/105. If your player doesn't expose that API, this will silently stay empty - check the Home Assistant log for "Failed to query http://.../getmusicplayinfo".
