@@ -12,6 +12,7 @@ A custom Home Assistant integration for controlling Blu-Ray players via their TC
 - **Media info**: Track name, album, artist, playback position/duration
 - **Extended state attributes**: Disc type, audio type, subtitle type, aspect ratio, 3D status, HDR status, video resolution
 - **Real-time updates**: Uses verbose mode 3 for detailed streaming status including playback progress
+- **Auto-discovery**: Every supported model can be found automatically on your network (see [Auto-discovery](#auto-discovery))
 - **Custom services**: Dimmer, Pure Audio toggle, on-screen info toggle, audio language cycle, subtitle cycle, zoom cycle (see [Services](#services))
 - **Automatic reconnection**: Reconnects automatically if the connection is lost
 
@@ -43,6 +44,16 @@ Manual installs won’t auto-notify updates-watch the repo if you go this route.
 6. Select your model (BDP-83, BDP-93/95, BDP-103/105, UDP-203, UDP-205 or Magnetar)
 7. Leave the port at the default and the correct port for the selected model is applied automatically (BDP-83: 19999; BDP-93/95/103/105: 48360; UDP-203/205: 23; Magnetar: 8102), or set it explicitly to override.
 8. For Magnetar players, enter the player's MAC address (required, used to wake it on power on).
+
+### Auto-discovery
+
+Every supported model can also be found automatically and will show up under **Settings** → **Devices & Services** for you to confirm and add:
+
+- UDP-203/205 and BDP-103/105 are found via UPnP/SSDP (the same mechanism used for DLNA).
+- All models (BDP-83/93/95/103/105 and UDP-203/205) are also found via a legacy UDP discovery probe - undocumented by Oppo, reverse-engineered from their now-discontinued mobile app.
+- Magnetar players are found via an SSDP-style UDP probe, reverse-engineered from the Magnetar mobile app (Magnetar's own manual doesn't document discovery at all).
+
+None of the non-SSDP mechanisms are officially documented, so if a player doesn't show up, add it manually with the steps above and check that your network allows UDP broadcast/multicast traffic to and from your Home Assistant host.
 
 ### Magnetar players
 
@@ -140,3 +151,4 @@ target:
 - **Cannot connect**: Ensure the player is powered on and on the same network. Check that no other application is connected to port 23 (only one TCP connection is allowed at a time).
 - **Slow responses**: The integration rate-limits commands to 100ms intervals to avoid overwhelming the player.
 - **State not updating**: If the player loses connection, it will automatically attempt to reconnect every 30 seconds.
+- **Player not found by auto-discovery**: Several of the discovery mechanisms rely on UDP broadcast/multicast reaching your Home Assistant host - check your router/firewall allows that traffic, then add the player manually (see [Configuration](#configuration)).
