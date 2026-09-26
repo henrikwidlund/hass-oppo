@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.media_player import (
+    ATTR_MEDIA_VOLUME_LEVEL,
     ATTR_MEDIA_VOLUME_MUTED,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
@@ -64,7 +65,7 @@ from .const import (
     SRC_RESP_USB_AUDIO_IN,
     USB_AUDIO,
 )
-from .magnetar_client import MagnetarClient
+from .magnetar_client import MagnetarClient, MagnetarPlayState, MagnetarPushEvent, MagnetarVolumeUpdate
 from .oppo_client import OppoClient, PlaybackStatus, PowerState, RepeatMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ _RECONNECT_INTERVAL = 30
 _SHORT_MOVE_THRESHOLD_SECONDS = 300
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Coroutine, Mapping
     from datetime import datetime
 
     from homeassistant.config_entries import ConfigEntry
@@ -131,6 +132,148 @@ _AUDIO_DISC_TYPES = frozenset({"cdda", "hdcd", "sacd", "dvd-audio"})
 # Only the UDP-20X players expose the aspect-ratio, 3D, HDR and track-metadata
 # queries (QAR/Q3D/QHS/QTN/QTA/QTP).
 _FULL_METADATA_MODELS = frozenset({MODEL_UDP203, MODEL_UDP205})
+
+# Magnetar push-state media types (see MagnetarPlayState), grouped for
+# media_content_type. The exact <state> vocabulary is unconfirmed (no live
+# device to check against), so only the common values are mapped; anything
+# else leaves the previous playback status in place rather than guessing.
+_MAGNETAR_AUDIO_MEDIA_TYPES = frozenset({"cd", "sacd", "audio"})
+_MAGNETAR_VIDEO_MEDIA_TYPES = frozenset({"bd", "vcd", "dvd", "video"})
+_MAGNETAR_STATE_TO_PLAYBACK = {
+    "play": PlaybackStatus.PLAY,
+    "pause": PlaybackStatus.PAUSE,
+    "stop": PlaybackStatus.STOP,
+}
+
+
+def _parse_hhmmss(time_str: str) -> int | None:
+    """Parse HH:MM:SS to seconds."""
+    parts = time_str.split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    except ValueError:
+        return None
+
+
+class _ReconnectScheduler:
+    """Reconnect-after-a-delay scheduling shared by the Oppo and Magnetar entities.
+
+    Both entities reconnect the same way (wait, then retry if still not
+    connected) but against a different client type, so this takes the
+    connection check and the reconnect action as callbacks instead of
+    depending on either entity.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        interval: float,
+        is_connected: Callable[[], bool],
+        reconnect: Callable[[], Coroutine[Any, Any, None]],
+    ) -> None:
+        self._hass = hass
+        self._interval = interval
+        self._is_connected = is_connected
+        self._reconnect = reconnect
+        self._unsub: CALLBACK_TYPE | None = None
+
+    def schedule(self) -> None:
+        """Schedule a reconnection attempt, replacing any already pending."""
+        self.cancel()
+        self._unsub = async_call_later(self._hass, self._interval, HassJob(self._on_fire))
+
+    def cancel(self) -> None:
+        """Cancel any pending reconnection."""
+        if self._unsub is not None:
+            self._unsub()
+            self._unsub = None
+
+    async def _on_fire(self, _now: datetime) -> None:
+        self._unsub = None
+        if not self._is_connected():
+            await self._reconnect()
+
+
+class _ArtworkFetcher:
+    """Album-artwork fetch coordination shared by the Oppo and Magnetar entities.
+
+    Both entities feed it the same three fields (artist/album/track) once
+    they're known and get a resolved cover URL back; only how those fields
+    are derived (and when it's worth trying at all) differs per entity, so
+    that part stays in each entity's own ``_schedule_artwork_fetch``.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        service: AlbumArtworkService,
+        host: str,
+        on_update: Callable[[], None],
+    ) -> None:
+        self._hass = hass
+        self._service = service
+        self._host = host
+        self._on_update = on_update
+        self._task: asyncio.Task[None] | None = None
+        self._last_key: tuple[str | None, ...] = ()
+        self.image_url: str | None = None
+
+    def schedule(self, artist: str | None, album: str | None, track: str | None) -> None:
+        """Kick off a fetch if the artist/album/track key changed."""
+        if not artist or (not album and not track):
+            return
+        key: tuple[str | None, ...] = (artist, album) if album else (artist, None, track)
+        if key == self._last_key:
+            return
+        self._last_key = key
+        self.cancel()
+        task = self._hass.async_create_task(
+            self._fetch(artist, album, track),
+            name=f"oppo_udp_artwork[{self._host}]",
+        )
+        task.add_done_callback(self._handle_done)
+        self._task = task
+
+    def cancel(self) -> None:
+        """Cancel any pending fetch task."""
+        task = self._task
+        if task is not None and not task.done():
+            task.cancel()
+        self._task = None
+
+    def reset(self) -> None:
+        """Clear the resolved image and dedup key (e.g. on disconnect)."""
+        self.cancel()
+        self._last_key = ()
+        self.image_url = None
+
+    async def wait_for_pending(self) -> None:
+        """Await any in-flight fetch task's cancellation, for orderly teardown."""
+        task = self._task
+        if task is not None and not task.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def _handle_done(self, task: asyncio.Task[None]) -> None:
+        """Drain the fetch task's result to keep the loop quiet."""
+        with contextlib.suppress(asyncio.CancelledError):
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                _LOGGER.debug("Artwork task raised for host %s", self._host, exc_info=exc)
+
+    async def _fetch(self, artist: str, album: str | None, track: str | None) -> None:
+        try:
+            url = await self._service.get_cover_url(artist, album, track)
+        except Exception:
+            _LOGGER.debug("Error fetching artwork", exc_info=True)
+            return
+        self.image_url = url
+        self._task = None
+        self._on_update()
 
 
 PLAYBACK_TO_STATE = {
@@ -230,12 +373,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # rebuild can atomically swap it out without leaving any field stale.
         self._snapshot = _Snapshot()
         self._streaming_active = False
-        self._unsub_reconnect: CALLBACK_TYPE | None = None
+        self._reconnect_scheduler: _ReconnectScheduler | None = None
         self._rebuild_in_progress = False
         self._rebuild_pending = False
         # Title/chapter from the most recent @UTC frame, for detecting the
         # content change that warrants a metadata rebuild. Kept off ``_snapshot``
-        # so a rebuild's atomic swap can't reset it — that would make the next
+        # so a rebuild's atomic swap can't reset it - that would make the next
         # frame look like a change and trigger an endless rebuild loop. Reset
         # only on playback invalidation.
         self._last_progress_title: int | None = None
@@ -244,12 +387,9 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # transition can cancel the previous delayed SVM send.
         self._verbose_mode_task: asyncio.Task[None] | None = None
 
-        # Album artwork — fetched async from MusicBrainz/Cover Art Archive,
+        # Album artwork - fetched async from MusicBrainz/Cover Art Archive,
         # only for models that expose track metadata (UDP-20X).
-        self._artwork_service: AlbumArtworkService | None = None
-        self._media_image_url: str | None = None
-        self._last_artwork_key: tuple[str | None, ...] = ()
-        self._artwork_task: asyncio.Task[None] | None = None
+        self._artwork: _ArtworkFetcher | None = None
 
         # Input sources per model. BDP-83/93/95 have no input-source control, so
         # they get an empty map and SELECT_SOURCE is not advertised.
@@ -347,7 +487,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     @override
     def media_image_url(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return album art URL fetched from Cover Art Archive."""
-        return self._media_image_url
+        return self._artwork.image_url if self._artwork else None
 
     @property
     @override
@@ -426,34 +566,38 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass."""
         await super().async_added_to_hass()
+        self._reconnect_scheduler = _ReconnectScheduler(
+            self.hass, _RECONNECT_INTERVAL, lambda: self._client.connected, self._connect_and_stream
+        )
         if self._supports_full_metadata:
-            self._artwork_service = AlbumArtworkService(self.hass)
+            self._artwork = _ArtworkFetcher(
+                self.hass, AlbumArtworkService(self.hass), self._client.host, self.async_write_ha_state
+            )
         await self._connect_and_stream()
 
     @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
-        self._reconnect_cancel()
+        if self._reconnect_scheduler is not None:
+            self._reconnect_scheduler.cancel()
         # Snapshot the task before clearing so we can await its teardown
-        # below — `_cancel_verbose_mode_task` issues the cancel and drops
+        # below - `_cancel_verbose_mode_task` issues the cancel and drops
         # the reference; the done-callback drains any exception.
         pending_verbose = self._verbose_mode_task
         self._cancel_verbose_mode_task()
         if pending_verbose is not None and not pending_verbose.done():
             with contextlib.suppress(asyncio.CancelledError):
                 await pending_verbose
-        pending_artwork = self._artwork_task
-        self._cancel_artwork_task()
-        if pending_artwork is not None and not pending_artwork.done():
-            with contextlib.suppress(asyncio.CancelledError):
-                await pending_artwork
+        if self._artwork is not None:
+            await self._artwork.wait_for_pending()
         await self._client.stop_streaming()
         await self._client.disconnect()
 
     async def _connect_and_stream(self) -> None:
         """Connect and start streaming updates, schedule reconnect on failure."""
         if not await self._client.connect():
-            self._schedule_reconnect()
+            if self._reconnect_scheduler is not None:
+                self._reconnect_scheduler.schedule()
             return
 
         # Query initial state
@@ -467,7 +611,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._streaming_active = True
         # Verbose mode only makes sense to send while the player is on. If
         # it's off now, the UPW=on streaming event (or a future TURN_ON) will
-        # trigger the SVM 3 command — provided verbose mode was set on a prior
+        # trigger the SVM 3 command - provided verbose mode was set on a prior
         # session, the player retains it across power cycles and will emit
         # events again.
         #
@@ -488,7 +632,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if self._snapshot.power_state == PowerState.ON:
             self._schedule_ensure_verbose_mode()
         else:
-            # Cannot confirm ON — make sure no leftover task from an earlier
+            # Cannot confirm ON - make sure no leftover task from an earlier
             # cycle keeps sleeping toward a now-pointless SVM send.
             self._cancel_verbose_mode_task()
 
@@ -505,7 +649,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
         Constructs a new ``_Snapshot`` locally and only assigns into it.
         Callers swap the returned snapshot in atomically so any field the
-        rebuild does not populate is reset to its dataclass default — no
+        rebuild does not populate is reset to its dataclass default - no
         stale carry-over from the previous snapshot.
         """
         snapshot = _Snapshot()
@@ -538,7 +682,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         snapshot.video_resolution = await self._client.query_hdmi_resolution()
 
         # Only poll active playback details (and repeat/HDR) if actually
-        # playing/paused with a known disc type — querying repeat or playback
+        # playing/paused with a known disc type - querying repeat or playback
         # sensors at the home menu can return stale or error responses.
         if snapshot.playback_status in (
             PlaybackStatus.PLAY,
@@ -551,7 +695,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         is_movie = snapshot.disc_type in ("bd-mv", "dvd-video", "uhbd")
 
         # Repeat / shuffle are only meaningful with active playback.
-        # Oppo reports them in the same query — Shuffle/Random surface
+        # Oppo reports them in the same query - Shuffle/Random surface
         # as ``shuffle=True`` with repeat falling back to OFF.
         repeat_mode = await self._client.query_repeat_mode()
         snapshot.repeat = _OPPO_TO_HA_REPEAT.get(repeat_mode, HARepeatMode.OFF)
@@ -571,7 +715,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if elapsed is not None and remaining is not None:
             snapshot.media_duration = elapsed + remaining
 
-        # If elapsed is 0, we're likely at a title/menu screen — querying
+        # If elapsed is 0, we're likely at a title/menu screen - querying
         # further details can produce errors and lock up the player.
         if not elapsed or not remaining:
             return
@@ -602,7 +746,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         # Subtitle info (only relevant for video discs)
         snapshot.subtitle_type = await self._client.query_subtitle_type()
 
-        # Video-only attributes (aspect ratio / 3D / HDR) are UDP-20X only — a
+        # Video-only attributes (aspect ratio / 3D / HDR) are UDP-20X only - a
         # snapshot rebuild fully refreshes them instead of relying on the next
         # streaming event.
         if not self._supports_full_metadata:
@@ -616,45 +760,25 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         if snapshot.disc_type == "uhbd":
             snapshot.hdr_status = await self._client.query_hdr_status()
 
-    def _schedule_reconnect(self) -> None:
-        """Schedule a reconnection attempt."""
-        self._reconnect_cancel()
-        self._unsub_reconnect = async_call_later(
-            self.hass,
-            _RECONNECT_INTERVAL,
-            HassJob(self._reconnect_callback),
-        )
-
-    def _reconnect_cancel(self) -> None:
-        """Cancel any pending reconnection."""
-        if self._unsub_reconnect is not None:
-            self._unsub_reconnect()
-            self._unsub_reconnect = None
-
-    async def _reconnect_callback(self, _now: datetime) -> None:
-        """Attempt to reconnect."""
-        self._unsub_reconnect = None
-        if not self._client.connected:
-            await self._connect_and_stream()
-
     @callback
     def _handle_disconnect(self) -> None:
-        """Handle connection loss — mark unavailable and schedule reconnect."""
+        """Handle connection loss - mark unavailable and schedule reconnect."""
         self._streaming_active = False
-        # Disconnect invalidates any in-flight delayed SVM send — drop it so
+        # Disconnect invalidates any in-flight delayed SVM send - drop it so
         # it can't fire against a freshly reconnected (and possibly off)
         # player.
         self._cancel_verbose_mode_task()
         # Drop the whole snapshot so HA does not show stale media data while
         # we are disconnected, and re-arm the @UTC progress cursor. Reconnect
-        # rebuilds via `_fetch_initial_state`, but that swallows errors — if it
+        # rebuilds via `_fetch_initial_state`, but that swallows errors - if it
         # fails, the snapshot stays empty and a stale cursor would let the first
         # post-reconnect time-code frame look "unchanged" and skip the rebuild,
         # leaving metadata empty until some other invalidating event.
         self._snapshot = _Snapshot()
         self._reset_progress_cursor()
         self.async_write_ha_state()
-        self._schedule_reconnect()
+        if self._reconnect_scheduler is not None:
+            self._reconnect_scheduler.schedule()
 
     @callback
     def _handle_streaming_event(self, event: tuple[str, str]) -> None:
@@ -674,7 +798,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._schedule_ensure_verbose_mode()
                 self._schedule_rebuild_snapshot()
                 return
-            # Power-off transition — drop any in-flight delayed SVM send so it
+            # Power-off transition - drop any in-flight delayed SVM send so it
             # doesn't fire against a player that's no longer on.
             self._cancel_verbose_mode_task()
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
@@ -683,7 +807,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         elif event_type == "playback":
             prev_status = self._snapshot.playback_status
             self._snapshot.playback_status = self._streaming_playback_to_enum(event[1])
-            # Transition from non-active to active playback — full rebuild
+            # Transition from non-active to active playback - full rebuild
             was_active = prev_status in (PlaybackStatus.PLAY, PlaybackStatus.PAUSE)
             is_active = self._snapshot.playback_status in (
                 PlaybackStatus.PLAY,
@@ -710,14 +834,14 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             # Disc change invalidates everything tied to the previous disc:
             # playback metadata (title/album/artist, audio/subtitle types,
             # repeat/shuffle/HDR, position/duration) and video pipeline
-            # attributes. Preserve playback_status — its own streaming event
+            # attributes. Preserve playback_status - its own streaming event
             # will deliver the new value.
             self._handle_invalidating_change()
             return
 
         elif event_type == "input_source":
             self._snapshot.current_source = self._map_input_source_response(event[1])
-            # Source change can invalidate the entire playback domain —
+            # Source change can invalidate the entire playback domain -
             # same scope as a disc change.
             self._handle_invalidating_change()
             return
@@ -750,7 +874,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _is_uhd_active_playback(self) -> bool:
         """True when a UHD Blu-Ray is actively playing/paused past the title screen.
 
-        Movies shorter than 300s are most likely a title screen — avoid
+        Movies shorter than 300s are most likely a title screen - avoid
         querying HDR status as it could lock up the player if it's not in a
         state where that info is available.
         """
@@ -805,62 +929,17 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 
     def _schedule_artwork_fetch(self) -> None:
         """Kick off an artwork fetch if the track changed and model supports it."""
-        if self._artwork_service is None:
+        if self._artwork is None:
             return
         snap = self._snapshot
         if snap.disc_type not in _AUDIO_DISC_TYPES:
             return
-        artist = snap.media_artist
-        album = snap.media_album
-        track = snap.media_title
-        if not artist or (not album and not track):
-            return
-        key: tuple[str | None, ...] = (artist, album) if album else (artist, None, track)
-        if key == self._last_artwork_key:
-            return
-        self._last_artwork_key = key
-        self._cancel_artwork_task()
-        artwork_task = self.hass.async_create_task(
-            self._fetch_artwork(artist, album, track),
-            name=f"oppo_udp_artwork[{self._client.host}]",
-        )
-        artwork_task.add_done_callback(self._handle_artwork_task_done)
-        self._artwork_task = artwork_task
-
-    def _cancel_artwork_task(self) -> None:
-        """Cancel any pending artwork fetch task."""
-        task = self._artwork_task
-        if task is not None and not task.done():
-            task.cancel()
-        self._artwork_task = None
-
-    def _handle_artwork_task_done(self, task: asyncio.Task[None]) -> None:
-        """Drain the artwork task's result to keep the loop quiet."""
-        with contextlib.suppress(asyncio.CancelledError):
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc is not None:
-                _LOGGER.debug("Artwork task raised for host %s", self._client.host, exc_info=exc)
-
-    async def _fetch_artwork(self, artist: str, album: str | None, track: str | None) -> None:
-        """Fetch album art and write to state when done."""
-        service = self._artwork_service
-        if service is None:
-            return
-        try:
-            url = await service.get_cover_url(artist, album, track)
-        except Exception:
-            _LOGGER.debug("Error fetching artwork", exc_info=True)
-            return
-        self._media_image_url = url
-        self._artwork_task = None
-        self.async_write_ha_state()
+        self._artwork.schedule(snap.media_artist, snap.media_album, snap.media_title)
 
     async def _ensure_verbose_mode(self) -> None:
         """Send ``SVM 3`` to enable detailed streaming updates.
 
-        Only safe to call while the player is on — the player ignores ``SVM``
+        Only safe to call while the player is on - the player ignores ``SVM``
         when powered off and ``QVM`` cannot be relied on to report the
         retained mode either. Sending the command immediately after a PON
         ACK is too aggressive: the player needs a moment after power-on
@@ -870,7 +949,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         """
         try:
             await asyncio.sleep(_VERBOSE_MODE_POWER_ON_DELAY)
-            # Recheck after the wait — if the player went off again during
+            # Recheck after the wait - if the player went off again during
             # the delay, skip the SVM send.
             if self._snapshot.power_state == PowerState.ON and not await self._client.set_verbose_mode(3):
                 _LOGGER.debug("Failed to enable verbose mode")
@@ -902,7 +981,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _schedule_rebuild_snapshot(self) -> None:
         """Schedule a rebuild task, coalescing concurrent requests.
 
-        A request that arrives while a rebuild is in flight is not dropped —
+        A request that arrives while a rebuild is in flight is not dropped -
         it sets a pending flag, and one additional rebuild is run when the
         current rebuild finishes so any state-invalidating event observed
         mid-rebuild is still reflected in the final snapshot.
@@ -924,7 +1003,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             return
 
         # Title is the content-change key; the chapter only matters on audio
-        # discs (where it is the track number — the title stays 001). Parse them
+        # discs (where it is the track number - the title stays 001). Parse them
         # independently so a malformed chapter can't suppress title-change
         # detection. Both are digit strings per the protocol.
         title = int(parts[0]) if parts[0].isdigit() else None
@@ -945,7 +1024,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
                 self._schedule_rebuild_snapshot()
                 return
 
-        # No content change — apply the frame, writing state only if the
+        # No content change - apply the frame, writing state only if the
         # position or duration moved.
         if self._parse_time_code_event(value):
             self.async_write_ha_state()
@@ -953,12 +1032,12 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     def _clear_playback_metadata(self) -> None:
         """Clear fields tied to the currently-playing content.
 
-        Shared by playback-stop, disc-change and input-source-change handlers —
+        Shared by playback-stop, disc-change and input-source-change handlers -
         all three invalidate position, track metadata, repeat/shuffle and HDR.
         ``playback_status`` is intentionally preserved: callers either keep the
         streaming-supplied value or leave the previous one in place. Video
         attributes (aspect ratio / 3D / HDMI resolution) are cleared by
-        ``_clear_video_state`` on the disc/source paths only — the player
+        ``_clear_video_state`` on the disc/source paths only - the player
         keeps reporting them across playback-active transitions.
         """
         self._snapshot.media_position = None
@@ -972,12 +1051,11 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         self._snapshot.repeat = HARepeatMode.OFF
         self._snapshot.shuffle = False
         self._snapshot.hdr_status = None
-        # Playback domain invalidated — re-arm the @UTC change detector so the
+        # Playback domain invalidated - re-arm the @UTC change detector so the
         # next time-code event rebuilds against fresh metadata.
         self._reset_progress_cursor()
-        self._media_image_url = None
-        self._last_artwork_key = ()
-        self._cancel_artwork_task()
+        if self._artwork is not None:
+            self._artwork.reset()
 
     def _reset_progress_cursor(self) -> None:
         """Re-arm the streaming @UTC title/chapter change detector."""
@@ -1014,7 +1092,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             self._rebuild_in_progress = False
 
         # If an invalidating streaming event arrived during the rebuild, the
-        # result we just built is already stale — skip the swap entirely and
+        # result we just built is already stale - skip the swap entirely and
         # let the follow-up rebuild produce the snapshot that gets applied.
         if self._rebuild_pending:
             self._rebuild_pending = False
@@ -1022,7 +1100,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
             return
 
         if new_snapshot is not None and not self._streaming_event_invalidated_rebuild(new_snapshot):
-            # Atomic swap — any field the rebuild didn't populate falls back to
+            # Atomic swap - any field the rebuild didn't populate falls back to
             # its dataclass default, so no stale value can survive.
             self._snapshot = new_snapshot
             self.async_write_ha_state()
@@ -1142,7 +1220,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
     async def async_turn_off(self) -> None:
         """Turn the player off."""
         if await self._client.power_off():
-            # Drop any in-flight delayed SVM send — the player is going off
+            # Drop any in-flight delayed SVM send - the player is going off
             # and the deferred command would otherwise fire against it.
             self._cancel_verbose_mode_task()
             self._snapshot = _Snapshot(power_state=PowerState.OFF)
@@ -1274,7 +1352,7 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
         elif repeat == HARepeatMode.ALL:
             oppo_mode = RepeatMode.ALL
         else:
-            # HARepeatMode.ONE — Oppo distinguishes chapter (video) from title/track (audio).
+            # HARepeatMode.ONE - Oppo distinguishes chapter (video) from title/track (audio).
             oppo_mode = RepeatMode.TITLE if self._snapshot.disc_type in _AUDIO_DISC_TYPES else RepeatMode.CHAPTER
         new_mode = await self._client.set_repeat_mode(oppo_mode)
         self._apply_repeat_mode_response(new_mode)
@@ -1304,19 +1382,21 @@ class OppoUDPMediaPlayer(MediaPlayerEntity):
 class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     """Representation of a Magnetar player.
 
-    The Magnetar network-control protocol is fire-and-forget: commands are
-    acknowledged with ``ack`` and the player reports no power, playback or
-    volume state. All state shown here is therefore optimistic — updated from
-    the commands we send, not from the player. ``assumed_state`` tells Home
-    Assistant the state is not confirmed (the UI then shows discrete on/off
-    controls), and the last assumed state is restored across restarts.
+    Most commands are fire-and-forget: acknowledged with ``ack`` and nothing
+    else. Sending ``#APP`` right after connecting (see ``MagnetarClient``)
+    makes the player start pushing real power/playback/volume/now-playing
+    state on the same connection, which is used here when available.
+    Power/playback/mute/volume are tracked optimistically as a fallback for
+    when the push connection is down (e.g. right after HA restarts, before
+    the socket reconnects) - ``assumed_state`` reflects which is currently in
+    effect, and the last assumed state is restored across restarts.
     """
 
     _attr_has_entity_name = True
+    _attr_media_image_remotely_accessible = True
     _attr_name = None
     _attr_should_poll = False
     _attr_translation_key = "magnetar"
-    _attr_assumed_state = True
 
     def __init__(
         self,
@@ -1330,10 +1410,23 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
         self._name = name
         self._model = model
         self._attr_unique_id = f"oppo_udp_{entry_id}"
-        # Optimistic state — the protocol gives no feedback.
+        # Optimistic fallback state - used until/unless the push channel is up.
         self._power_state = PowerState.UNKNOWN
         self._playback_status = PlaybackStatus.UNKNOWN
         self._is_muted = False
+        self._volume_level: float | None = None
+        # Real state from the push channel (see MagnetarClient / _handle_push_event).
+        self._push_active = False
+        self._play_state: MagnetarPlayState | None = None
+        self._media_content_type: MediaType | None = None
+        self._media_title: str | None = None
+        self._media_artist: str | None = None
+        self._media_album: str | None = None
+        self._media_position: int | None = None
+        self._media_position_updated_at: datetime | None = None
+        self._media_duration: int | None = None
+        self._reconnect_scheduler: _ReconnectScheduler | None = None
+        self._artwork: _ArtworkFetcher | None = None
 
     @property
     @override
@@ -1351,7 +1444,7 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
     def supported_features(self) -> MediaPlayerEntityFeature:  # pyright: ignore [reportIncompatibleVariableOverride]
         """Return the supported features.
 
-        Volume is step-only and mute is a blind toggle — the protocol has no
+        Volume is step-only and mute is a blind toggle - the protocol has no
         set-volume command and no way to read the current level. Source
         selection and repeat/shuffle are likewise unavailable.
         """
@@ -1381,8 +1474,18 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
 
     @property
     @override
+    def assumed_state(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return True until the push channel has confirmed real state.
+
+        Once ``#APP`` has been acknowledged with at least one push update,
+        state is real rather than assumed (see class docstring).
+        """
+        return not self._push_active
+
+    @property
+    @override
     def state(self) -> MediaPlayerState | None:  # pyright: ignore [reportIncompatibleVariableOverride]
-        """Return the optimistic player state."""
+        """Return the player state (real once the push channel is up, optimistic otherwise)."""
         if self._power_state == PowerState.OFF:
             return MediaPlayerState.OFF
         if self._power_state == PowerState.UNKNOWN:
@@ -1392,22 +1495,99 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
     @property
     @override
     def is_volume_muted(self) -> bool:  # pyright: ignore [reportIncompatibleVariableOverride]
-        """Return the last mute state we set (optimistic)."""
+        """Return the last known mute state (real once the push channel is up)."""
         return self._is_muted
+
+    @property
+    @override
+    def volume_level(self) -> float | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the last known volume level (0..1), if the push channel has reported one."""
+        return self._volume_level
+
+    @property
+    @override
+    def media_content_type(self) -> MediaType | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the content type of the current now-playing media."""
+        return self._media_content_type
+
+    @property
+    @override
+    def media_title(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the media title."""
+        return self._media_title
+
+    @property
+    @override
+    def media_artist(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the media artist."""
+        return self._media_artist
+
+    @property
+    @override
+    def media_album_name(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the media album."""
+        return self._media_album
+
+    @property
+    @override
+    def media_position(self) -> int | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the media position in seconds."""
+        return self._media_position
+
+    @property
+    @override
+    def media_position_updated_at(self) -> datetime | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return when media_position was last updated."""
+        return self._media_position_updated_at
+
+    @property
+    @override
+    def media_duration(self) -> int | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the media duration in seconds."""
+        return self._media_duration
+
+    @property
+    @override
+    def media_image_url(self) -> str | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return album art URL fetched from Cover Art Archive."""
+        return self._artwork.image_url if self._artwork else None
+
+    @property
+    @override
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """Return the push fields with no standard media_player property equivalent."""
+        play_state = self._play_state
+        if play_state is None:
+            return None
+        attrs: dict[str, str] = {"media_type": play_state.media_type}
+        if play_state.repeat_mode:
+            attrs["repeat_mode"] = play_state.repeat_mode
+        for field in ("hdr", "four_k", "color_space", "deep_color", "frame_rate", "channel", "frequency"):
+            value = getattr(play_state, field)
+            if value:
+                attrs[field] = value
+        return attrs
 
     @override
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass.
 
-        The player reports no state, so restore the last assumed state we wrote
-        before this restart rather than starting from ``unknown``. The socket
-        is opened best-effort; commands reconnect on demand if it fails.
+        Restore the last assumed state we wrote before this restart (used as
+        a fallback until the push channel confirms real state), then connect
+        and start the push channel - retried automatically if it fails now
+        (e.g. the player is off at HA startup).
         """
         await super().async_added_to_hass()
+        self._reconnect_scheduler = _ReconnectScheduler(
+            self.hass, _RECONNECT_INTERVAL, lambda: self._client.connected, self._connect_and_stream
+        )
+        self._artwork = _ArtworkFetcher(
+            self.hass, AlbumArtworkService(self.hass), self._client.host, self.async_write_ha_state
+        )
         last_state = await self.async_get_last_state()
         if last_state is not None:
             self._restore_state(last_state)
-        await self._client.connect()
+        await self._connect_and_stream()
         self.async_write_ha_state()
 
     def _restore_state(self, last_state: State) -> None:
@@ -1428,10 +1608,96 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
         muted = last_state.attributes.get(ATTR_MEDIA_VOLUME_MUTED)
         if isinstance(muted, bool):
             self._is_muted = muted
+        volume = last_state.attributes.get(ATTR_MEDIA_VOLUME_LEVEL)
+        if isinstance(volume, (int, float)):
+            self._volume_level = float(volume)
+
+    async def _connect_and_stream(self) -> None:
+        """Connect, enable the push channel, and start streaming; retry on failure."""
+        if not await self._client.connect():
+            if self._reconnect_scheduler is not None:
+                self._reconnect_scheduler.schedule()
+            return
+        await self._client.enable_metadata_push()
+        self._client.start_streaming(self._handle_push_event, on_disconnect=self._handle_disconnect)
+
+    @callback
+    def _handle_disconnect(self) -> None:
+        """Handle push-channel loss: drop real now-playing data, keep the last
+        assumed power/playback/mute/volume, and schedule a reconnect.
+        """
+        self._push_active = False
+        self._play_state = None
+        self._media_content_type = None
+        self._media_title = None
+        self._media_artist = None
+        self._media_album = None
+        self._media_position = None
+        self._media_position_updated_at = None
+        self._media_duration = None
+        if self._artwork is not None:
+            self._artwork.reset()
+        self.async_write_ha_state()
+        if self._reconnect_scheduler is not None:
+            self._reconnect_scheduler.schedule()
+
+    @callback
+    def _handle_push_event(self, event: MagnetarPushEvent) -> None:
+        """Handle a push event from the player (see MagnetarClient)."""
+        self._push_active = True
+        if isinstance(event, MagnetarPlayState):
+            self._apply_play_state(event)
+        else:
+            self._apply_volume_update(event)
+        self.async_write_ha_state()
+
+    def _apply_play_state(self, event: MagnetarPlayState) -> None:
+        """Update real power/playback/now-playing state from a push update."""
+        self._power_state = PowerState.ON
+        playback = _MAGNETAR_STATE_TO_PLAYBACK.get(event.state.strip().lower())
+        if playback is not None:
+            self._playback_status = playback
+        elif event.state:
+            _LOGGER.debug("Unrecognized Magnetar playback state %r", event.state)
+
+        self._play_state = event
+        if event.media_type in _MAGNETAR_AUDIO_MEDIA_TYPES:
+            self._media_content_type = MediaType.MUSIC
+        elif event.media_type in _MAGNETAR_VIDEO_MEDIA_TYPES:
+            self._media_content_type = MediaType.VIDEO
+        else:
+            self._media_content_type = None
+
+        self._media_title = event.track_title or event.title or event.file_name
+        self._media_artist = event.disc_artist or event.artist
+        self._media_album = event.disc_title
+        self._media_duration = _parse_hhmmss(event.total_time) if event.total_time else None
+        position = _parse_hhmmss(event.curr_time) if event.curr_time else None
+        if position is not None:
+            self._media_position = position
+            self._media_position_updated_at = dt_util.utcnow()
+        self._schedule_artwork_fetch()
+
+    def _apply_volume_update(self, event: MagnetarVolumeUpdate) -> None:
+        """Update real volume/mute state from a push update."""
+        self._is_muted = event.muted
+        if event.volume is not None:
+            self._volume_level = event.volume / 100.0
+
+    def _schedule_artwork_fetch(self) -> None:
+        """Kick off an artwork fetch if the now-playing track changed."""
+        if self._artwork is None or self._media_content_type != MediaType.MUSIC:
+            return
+        self._artwork.schedule(self._media_artist, self._media_album, self._media_title)
 
     @override
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity is removed from hass."""
+        if self._reconnect_scheduler is not None:
+            self._reconnect_scheduler.cancel()
+        if self._artwork is not None:
+            await self._artwork.wait_for_pending()
+        await self._client.stop_streaming()
         await self._client.disconnect()
 
     def _set_power(self, power: PowerState, playback: PlaybackStatus) -> None:
@@ -1450,7 +1716,7 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
 
     @override
     async def async_turn_on(self) -> None:
-        """Turn the player on (state is assumed — see MagnetarClient)."""
+        """Turn the player on (state is assumed - see MagnetarClient)."""
         self._set_power(await self._client.power_on(), PlaybackStatus.STOP)
 
     @override
@@ -1513,7 +1779,7 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
 
     @override
     async def async_mute_volume(self, mute: bool) -> None:
-        """Toggle mute (blind — the player reports no mute state)."""
+        """Toggle mute (blind - the player reports no mute state)."""
         if mute == self._is_muted:
             return
         if await self._client.mute_toggle():
