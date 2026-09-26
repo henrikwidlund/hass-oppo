@@ -15,6 +15,22 @@
           "port": "UDP-203/205 use 23, BDP-83 uses 19999, BDP-93/95/103/105 use 48360, Magnetar uses 8102. Leave this at the default and the correct port for the selected model is applied automatically, or set it explicitly to override.",
           "mac": "Required for Magnetar players; used to wake the player on power on. Ignored for Oppo players."
         }
+      },
+      "discovery_confirm": {
+        "title": "Discovered Oppo player",
+        "description": "Found an Oppo player at {host}:{port}. Confirm the name and model to add it.",
+        "data": {
+          "name": "Name",
+          "model": "Model"
+        }
+      },
+      "magnetar_confirm": {
+        "title": "Discovered Magnetar player",
+        "description": "Found a Magnetar player at {host}. A MAC address is required for Wake-on-LAN.",
+        "data": {
+          "name": "Name",
+          "mac": "MAC address"
+        }
       }
     },
     "error": {
@@ -22,7 +38,8 @@
       "invalid_mac": "Enter a valid MAC address (e.g. 00:11:22:33:44:55). Required for Magnetar players."
     },
     "abort": {
-      "already_configured": "This player is already configured."
+      "already_configured": "This player is already configured.",
+      "not_oppo_player": "The discovered UPnP device isn't a recognized Oppo player."
     }
   },
   "entity": {
