@@ -141,7 +141,7 @@ _FULL_METADATA_MODELS = frozenset({MODEL_UDP203, MODEL_UDP205})
 _MAGNETAR_AUDIO_MEDIA_TYPES = frozenset({"cd", "sacd", "audio"})
 _MAGNETAR_VIDEO_MEDIA_TYPES = frozenset({"bd", "vcd", "dvd", "video"})
 _MAGNETAR_STATE_TO_PLAYBACK = {
-    "play": PlaybackStatus.PLAY,
+    "playing": PlaybackStatus.PLAY,
     "pause": PlaybackStatus.PAUSE,
     "stop": PlaybackStatus.STOP,
 }

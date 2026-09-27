@@ -74,6 +74,10 @@ class MagnetarPlayState:
     cd -> track_title/channel/frequency; sacd -> + disc_artist
     /disc_title; bd/vcd/dvd/video -> file_name/hdr/four_k/color_space/
     deep_color/frame_rate; audio -> file_name/channel/frequency/artist/title.
+
+    Confirmed against a real capture: these are all nested inside
+    ``<media type="...">...</media>``, not flat siblings of ``<media>``
+    under ``<data>``.
     """
 
     media_type: str
@@ -129,7 +133,7 @@ def _parse_play_state(data: Element) -> MagnetarPlayState | None:
     """Build a MagnetarPlayState from an ``UpdatePlayState`` message's ``<data>`` element."""
     media = data.find("media")
     media_type = media.get("type") if media is not None else None
-    if not media_type:
+    if not media_type or media is None:
         return None
     return MagnetarPlayState(
         media_type=media_type,
@@ -139,19 +143,19 @@ def _parse_play_state(data: Element) -> MagnetarPlayState | None:
         curr_time=_text(data, "curr_time") or "",
         total_time=_text(data, "total_time") or "",
         repeat_mode=_text(data, "repeat_mode") or "",
-        track_title=_text(data, "track_title"),
-        channel=_text(data, "channel"),
-        frequency=_text(data, "frequency"),
-        disc_artist=_text(data, "disc_artist"),
-        disc_title=_text(data, "disc_title"),
-        file_name=_text(data, "file_name"),
-        hdr=_text(data, "hdr"),
-        four_k=_text(data, "four_k"),
-        color_space=_text(data, "color_space"),
-        deep_color=_text(data, "deep_color"),
-        frame_rate=_text(data, "frame_rate"),
-        artist=_text(data, "artist"),
-        title=_text(data, "title"),
+        track_title=_text(media, "track_title"),
+        channel=_text(media, "channel"),
+        frequency=_text(media, "frequency"),
+        disc_artist=_text(media, "disc_artist"),
+        disc_title=_text(media, "disc_title"),
+        file_name=_text(media, "file_name"),
+        hdr=_text(media, "hdr"),
+        four_k=_text(media, "four_k"),
+        color_space=_text(media, "color_space"),
+        deep_color=_text(media, "deep_color"),
+        frame_rate=_text(media, "frame_rate"),
+        artist=_text(media, "artist"),
+        title=_text(media, "title"),
     )
 
 
