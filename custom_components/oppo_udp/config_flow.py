@@ -25,7 +25,6 @@ from .const import (
     MODEL_UDP205,
     MODELS,
     OPPO_MODELS,
-    PORT_MODEL_CANDIDATES,
     PRE_20X_MODELS,
 )
 from .magnetar_client import MagnetarClient, parse_mac
@@ -77,35 +76,6 @@ def _normalize_host(host: str) -> str:
     return urlsplit(f"//{normalized}").hostname or normalized
 
 
-def _guess_udp20x_model(discovered_name: str) -> str:
-    """Guess UDP-203 vs UDP-205 from the discovered server name.
-
-    The discovery broadcast carries the player's configured name (e.g. "OPPO
-    UDP-205"), not a model code, so this is a best-effort default for the
-    confirmation form - the user can still change it before submitting.
-    """
-    return MODEL_UDP205 if "205" in discovered_name else MODEL_UDP203
-
-
-def _model_candidates_for_port(port: int) -> list[str]:
-    """Narrow the discovery-confirm model choices by the discovered control port.
-
-    Both the UDP-20X broadcast and the legacy OREMOTE probe (see
-    ``discovery.py``) resolve to a specific control port, which maps back to
-    one or two candidate models (BDP-93/95 and BDP-103/105 share a port, as
-    do UDP-203/UDP-205). A port outside that map means an unrecognized or
-    non-standard setup, so fall back to every non-Magnetar model.
-    """
-    return PORT_MODEL_CANDIDATES.get(port, OPPO_MODELS)
-
-
-def _default_model_for_discovery(discovered_name: str, port: int) -> str:
-    """Best-effort default model for the discovery-confirm form."""
-    if port == DEFAULT_PORT:
-        return _guess_udp20x_model(discovered_name)
-    return _model_candidates_for_port(port)[0]
-
-
 class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Blu-ray player."""
 
@@ -114,9 +84,10 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     _discovered_host: str = ""
     _discovered_port: int = DEFAULT_PORT
     _discovered_name: str = ""
-    # Set only when the discovery mechanism identifies the exact model (SSDP
-    # does; the UDP-20X broadcast and legacy OREMOTE probe only narrow it
-    # down, see _model_candidates_for_port).
+    # Set when the discovery mechanism identifies the model: SSDP always
+    # does; the legacy OREMOTE probe does too whenever its reply text
+    # matched a known model (see discovery.py's _guess_model_from_oremote_text)
+    # - None only for the rare reply that didn't match anything.
     _discovered_model: str | None = None
 
     @override
@@ -152,9 +123,9 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_integration_discovery(self, discovery_info: dict[str, Any]) -> ConfigFlowResult:
         """Handle a player found via auto-discovery.
 
-        ``discovery_info`` comes from one of three mechanisms (see
-        ``discovery.py``): the UDP-20X broadcast, the legacy OREMOTE probe
-        (both share the same shape: host/port/name), or the Magnetar SSDP
+        ``discovery_info`` comes from one of two mechanisms (see
+        ``discovery.py``): the legacy OREMOTE probe (host/port/name, plus a
+        model whenever the reply text matched one), or the Magnetar SSDP
         probe (host only, flagged by ``CONF_MODEL``).
         """
         host = _normalize_host(str(discovery_info[CONF_HOST]))
@@ -170,6 +141,7 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
 
         self._discovered_port = int(discovery_info[CONF_PORT])
         self._discovered_name = str(discovery_info[CONF_NAME])
+        self._discovered_model = discovery_info.get(CONF_MODEL)
         self.context["title_placeholders"] = {"name": self._discovered_name}
         return await self.async_step_discovery_confirm()
 
@@ -198,13 +170,14 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self.async_step_discovery_confirm()
 
     async def async_step_discovery_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Confirm setup of an Oppo player found via SSDP, the UDP-20X broadcast, or the legacy OREMOTE probe.
+        """Confirm setup of an Oppo player found via SSDP or the legacy OREMOTE probe.
 
-        All three mechanisms yield a host, a control port and a name (see
+        Both mechanisms yield a host, a control port and a name (see
         ``discovery.py`` and ``async_step_ssdp``), so they share this one
         confirmation step; only the model choices offered differ -- fixed to
-        a single option when SSDP already named the exact model, otherwise
-        narrowed by the discovered port.
+        a single option whenever the model is already known (SSDP always
+        knows it; OREMOTE does too whenever its reply text matched one),
+        otherwise every non-Magnetar model, for the user to pick manually.
         """
         errors: dict[str, str] = {}
 
@@ -212,8 +185,8 @@ class OppoUDPConfigFlow(ConfigFlow, domain=DOMAIN):
             model_candidates = [self._discovered_model]
             default_model = self._discovered_model
         else:
-            model_candidates = _model_candidates_for_port(self._discovered_port)
-            default_model = _default_model_for_discovery(self._discovered_name, self._discovered_port)
+            model_candidates = OPPO_MODELS
+            default_model = OPPO_MODELS[0]
 
         if user_input is not None:
             data: dict[str, Any] = {

@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 from datetime import timedelta
 import logging
-import re
 import socket
 from typing import TYPE_CHECKING, override
 
@@ -15,7 +14,16 @@ from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PORT, EVENT_HOMEASSIS
 from homeassistant.helpers import discovery_flow
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import CONF_MODEL, DOMAIN, MODEL_MAGNETAR
+from .const import (
+    CONF_MODEL,
+    DOMAIN,
+    MODEL_BDP9X,
+    MODEL_BDP10X,
+    MODEL_BDP83,
+    MODEL_MAGNETAR,
+    MODEL_UDP203,
+    MODEL_UDP205,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -24,20 +32,15 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-DISCOVERY_ADDRESS = "239.255.255.251"
 DISCOVERY_PORT = 7624
 DISCOVERY_BROADCAST_ADDRESS = "255.255.255.255"
 
-_NOTIFY_PATTERN = re.compile(
-    r"Notify:\s*OPPO Player Start.*?"
-    + r"Server IP:\s*(?P<host>\S+).*?"
-    + r"Server Port:\s*(?P<port>\d+).*?"
-    + r"Server Name:\s*(?P<name>.+)",
-    re.DOTALL,
-)
-
 # Legacy "OREMOTE" discovery: active probe + marker-delimited reply, used by
-# every pre-UDP-20X model (and still answered by the UDP-20X itself).
+# every model (pre-UDP-20X and UDP-20X alike). Previously this module also
+# passively listened for the UDP-20X's own NOTIFY multicast broadcast, but
+# that gave no information OREMOTE didn't already have (same host/port) on a
+# much less reliable ~10s cycle, so it was dropped - OREMOTE alone now covers
+# every model.
 _OREMOTE_LOGIN_MESSAGE = b"NOTIFY OREMOTE LOGIN"
 _OREMOTE_MARKER = "REPORT ADDRESS TO OREMOTE:"
 # The legacy players don't self-announce, so they need to be actively
@@ -45,33 +48,62 @@ _OREMOTE_MARKER = "REPORT ADDRESS TO OREMOTE:"
 # after startup. Matches the Magnetar/SSDP rescan cadence below.
 _OREMOTE_PROBE_INTERVAL = timedelta(minutes=10)
 
+# Every model includes its own designation in the OREMOTE reply's text (e.g.
+# "UDP-203_OPPO UDP-203 REPORT ADDRESS TO OREMOTE:..."), so a plain substring
+# check identifies it - order doesn't matter, none of these tokens overlap.
+_MODEL_TOKENS = (
+    ("UDP-203", MODEL_UDP203),
+    ("UDP-205", MODEL_UDP205),
+    ("BDP-83", MODEL_BDP83),
+    ("BDP-93", MODEL_BDP9X),
+    ("BDP-95", MODEL_BDP9X),
+    ("BDP-103", MODEL_BDP10X),
+    ("BDP-105", MODEL_BDP10X),
+)
+
+
+def _guess_model_from_oremote_text(message: str) -> str | None:
+    """Best-effort model guess from an OREMOTE reply's own text."""
+    upper = message.upper()
+    for token, model in _MODEL_TOKENS:
+        if token in upper:
+            return model
+    return None
+
 
 def _parse_oremote_reply(message: str) -> dict[str, str | int] | None:
     """Parse a legacy OREMOTE discovery reply.
 
     Format: "<type>_<name>_REPORT ADDRESS TO OREMOTE:<ip>:<port>\\0" - not a
     clean CSV, so this searches for the marker string rather than splitting
-    on fixed field offsets, mirroring the reference Android app's parser.
+    on fixed field offsets, mirroring the reference Android app's parser. A
+    real UDP-203 was observed replying with a plain space instead of the
+    second underscore, and a space after the colon too, so this doesn't
+    assume either separator is present.
     """
     message = message.rstrip("\x00")
     marker_index = message.find(_OREMOTE_MARKER)
     if marker_index == -1:
         return None
 
-    head = message[: marker_index - 1]  # drop the separator right before the marker
+    head = message[:marker_index].rstrip(" _")
     first_underscore = head.find("_")
     name = head if first_underscore == -1 else head[first_underscore + 1 :]
+    name = name.strip()
 
     tail = message[marker_index + len(_OREMOTE_MARKER) :].lstrip()
     host, _sep, port_text = tail.partition(":")
     if not host or not port_text.isdigit():
         return None
 
-    return {CONF_HOST: host, CONF_PORT: int(port_text), CONF_NAME: name or host}
+    result: dict[str, str | int] = {CONF_HOST: host, CONF_PORT: int(port_text), CONF_NAME: name or host}
+    if (model := _guess_model_from_oremote_text(message)) is not None:
+        result[CONF_MODEL] = model
+    return result
 
 
 class _DiscoveryProtocol(asyncio.DatagramProtocol):
-    """Parse incoming OPPO UDP-20X broadcasts and legacy OREMOTE replies."""
+    """Parse incoming legacy OREMOTE discovery replies."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
@@ -79,13 +111,6 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
     @staticmethod
     def _parse(data: bytes) -> dict[str, str | int] | None:
         message = data.decode("ascii", errors="ignore")
-        match = _NOTIFY_PATTERN.search(message)
-        if match:
-            return {
-                CONF_HOST: match.group("host"),
-                CONF_PORT: int(match.group("port")),
-                CONF_NAME: match.group("name").strip(),
-            }
         return _parse_oremote_reply(message)
 
     @override
@@ -105,15 +130,14 @@ class _DiscoveryProtocol(asyncio.DatagramProtocol):
         _LOGGER.debug("OPPO discovery socket error", exc_info=exc)
 
 
-def _create_multicast_socket() -> socket.socket:
-    """Bind a socket to the OPPO discovery port and multicast group.
+def _create_discovery_socket() -> socket.socket:
+    """Bind a socket to the OPPO discovery port for the OREMOTE probe/reply exchange.
 
-    Also enables broadcast, since the same socket sends the active legacy
-    "NOTIFY OREMOTE LOGIN" probe - the player replies to the exact socket
-    it was queried on, so probing and listening must share one socket.
+    Enables broadcast, since the same socket sends the active legacy "NOTIFY
+    OREMOTE LOGIN" probe - the player replies to the exact socket it was
+    queried on, so probing and listening must share one socket.
 
-    Runs in the executor: socket creation and group membership are blocking
-    calls on some platforms.
+    Runs in the executor: socket creation is a blocking call on some platforms.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -121,21 +145,19 @@ def _create_multicast_socket() -> socket.socket:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.bind(("", DISCOVERY_PORT))
-    membership_request = socket.inet_aton(DISCOVERY_ADDRESS) + socket.inet_aton("0.0.0.0")  # noqa: S104
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership_request)
     sock.setblocking(False)  # noqa: FBT003 - socket.setblocking only takes a positional bool
     return sock
 
 
 async def async_start_oppo_discovery(hass: HomeAssistant) -> None:
-    """Start Oppo discovery: listen for the UDP-20X broadcast and actively probe for legacy OREMOTE players.
+    """Start Oppo discovery: actively probe for and listen to legacy OREMOTE replies.
 
-    Best-effort: another process holding the discovery port, or a platform
-    without multicast support, should not prevent the rest of the
-    integration (including manual setup) from working.
+    Best-effort: another process holding the discovery port should not
+    prevent the rest of the integration (including manual setup) from
+    working.
     """
     try:
-        sock = await hass.async_add_executor_job(_create_multicast_socket)
+        sock = await hass.async_add_executor_job(_create_discovery_socket)
     except OSError:
         _LOGGER.debug("Unable to bind OPPO discovery socket", exc_info=True)
         return
@@ -236,8 +258,9 @@ async def _async_scan_for_magnetar(hass: HomeAssistant) -> None:
 def start_magnetar_discovery(hass: HomeAssistant) -> None:
     """Start periodic active discovery of Magnetar players.
 
-    Unlike the UDP-20X broadcast, Magnetar players never announce
-    themselves - they only reply to an M-SEARCH - so this actively probes
+    Unlike Oppo players (which all reply to the shared OREMOTE probe above),
+    Magnetar players speak a different, SSDP-style protocol and never
+    self-announce - they only reply to an M-SEARCH - so this actively probes
     once at startup and then on a periodic cadence, rather than passively
     listening. The scan itself (a multi-second burst-and-listen) runs as a
     background task so it never delays integration setup.
