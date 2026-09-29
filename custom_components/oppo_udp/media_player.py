@@ -1627,6 +1627,11 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
     async def _connect_and_stream(self) -> None:
         """Connect, enable the push channel, and start streaming; retry on failure."""
         if not await self._client.connect():
+            # There's no way to tell "player is off" from "player is unreachable
+            # on the network" - treat both as off rather than leaving the last assumed
+            # power state in place.
+            self._power_state = PowerState.OFF
+            self.async_write_ha_state()
             if self._reconnect_scheduler is not None:
                 self._reconnect_scheduler.schedule()
             return
@@ -1635,9 +1640,11 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
 
     @callback
     def _handle_disconnect(self) -> None:
-        """Handle push-channel loss: drop real now-playing data, keep the last
-        assumed power/playback/mute/volume, and schedule a reconnect.
+        """Handle push-channel loss: treat the player as off (see
+        `_connect_and_stream`), drop real now-playing data, and schedule a
+        reconnect.
         """
+        self._power_state = PowerState.OFF
         self._push_active = False
         self._play_state = None
         self._media_content_type = None
