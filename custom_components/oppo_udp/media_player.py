@@ -1635,6 +1635,11 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
             if self._reconnect_scheduler is not None:
                 self._reconnect_scheduler.schedule()
             return
+        # TCP connect succeeding doesn't mean the player is on - Magnetar's network
+        # stack stays reachable in deep sleep, but doesn't respond to commands or
+        # send message, so we assume player is off as default when connectable
+        self._power_state = PowerState.OFF
+        self.async_write_ha_state()
         await self._client.enable_metadata_push()
         self._client.start_streaming(self._handle_push_event, on_disconnect=self._handle_disconnect)
 
