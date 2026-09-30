@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
+from homeassistant.helpers import config_validation as cv
 
+from .const import DOMAIN
 from .discovery import async_start_oppo_discovery, start_magnetar_discovery
 
 if TYPE_CHECKING:
@@ -14,6 +16,9 @@ if TYPE_CHECKING:
     from homeassistant.helpers.typing import ConfigType
 
 PLATFORMS: list[Platform] = [Platform.MEDIA_PLAYER]
+
+# This integration has no YAML configuration - only config entries.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, _config: ConfigType) -> bool:
