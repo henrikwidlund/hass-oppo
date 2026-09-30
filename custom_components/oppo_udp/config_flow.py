@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlsplit
 
-import voluptuous as vol
+import probatio as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME, CONF_PORT

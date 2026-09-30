@@ -1365,6 +1365,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "defusedxml" },
     { name = "homeassistant" },
+    { name = "probatio" },
 ]
 
 [package.dev-dependencies]
@@ -1377,6 +1378,7 @@ dev = [
 requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1" },
     { name = "homeassistant", specifier = "==2026.10.0b0" },
+    { name = "probatio", specifier = ">=0.12.4" },
 ]
 
 [package.metadata.requires-dev]
