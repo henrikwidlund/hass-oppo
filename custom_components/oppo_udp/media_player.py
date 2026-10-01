@@ -1671,9 +1671,31 @@ class MagnetarMediaPlayer(MediaPlayerEntity, RestoreEntity):  # pyright: ignore[
         self._push_active = True
         if isinstance(event, MagnetarPlayState):
             self._apply_play_state(event)
-        else:
+        elif isinstance(event, MagnetarVolumeUpdate):
             self._apply_volume_update(event)
+        else:
+            self._apply_power_off()
         self.async_write_ha_state()
+
+    def _apply_power_off(self) -> None:
+        """Handle a synthetic power-off push (see MagnetarPowerOff).
+
+        Not a disconnect - the push channel is still up, this is the proxy
+        telling us the player itself went quiet - so unlike
+        `_handle_disconnect`, `_push_active` stays True and no reconnect is
+        scheduled.
+        """
+        self._power_state = PowerState.OFF
+        self._play_state = None
+        self._media_content_type = None
+        self._media_title = None
+        self._media_artist = None
+        self._media_album = None
+        self._media_position = None
+        self._media_position_updated_at = None
+        self._media_duration = None
+        if self._artwork is not None:
+            self._artwork.reset()
 
     def _apply_play_state(self, event: MagnetarPlayState) -> None:
         """Update real power/playback/now-playing state from a push update."""

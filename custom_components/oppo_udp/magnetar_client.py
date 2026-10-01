@@ -110,7 +110,22 @@ class MagnetarVolumeUpdate:
     volume: int | None = None
 
 
-MagnetarPushEvent = MagnetarPlayState | MagnetarVolumeUpdate
+@dataclass(frozen=True)
+class MagnetarPowerOff:
+    """Synthetic power-off marker.
+
+    Not something the real player ever sends - Magnetar has no power-off push
+    at all, it just stops sending anything, and the proxy (oppo-multiplexer)
+    keeps a client's own connection alive regardless of the player's real
+    state. When run through that proxy, it synthesizes this ``SyntheticPowerOff``
+    cmd on backend disconnect so a client can tell "player is off" apart from
+    "proxy is still here, player just isn't talking" - something a direct
+    (non-proxied) connection doesn't need, since its own socket actually drops
+    in that case.
+    """
+
+
+MagnetarPushEvent = MagnetarPlayState | MagnetarVolumeUpdate | MagnetarPowerOff
 
 
 def _text(data: Element, tag: str) -> str | None:
@@ -189,11 +204,16 @@ def _parse_push_message(xml_text: str) -> MagnetarPushEvent | None:
     operation = root.find("operation")
     if operation is None:
         return None
+
+    cmd = operation.findtext("cmd")
+    if cmd == "SyntheticPowerOff":
+        # No <data> element on this one - it's not a real player message.
+        return MagnetarPowerOff()
+
     data = operation.find("data")
     if data is None:
         return None
 
-    cmd = operation.findtext("cmd")
     if cmd == "UpdatePlayState":
         return _parse_play_state(data)
     if cmd == "UpdateVolume":
